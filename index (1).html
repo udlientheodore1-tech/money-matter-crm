@@ -1,0 +1,452 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Money Matter CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{color-scheme:dark;--ink:#F2EEE3;--muted:#A39C8A;--line:#3A3426;--ground:#0E0E0E;--surface:#17150F;--col:#1D1A12;--accent:#C9A227;--on-accent:#0E0E0E;--accent-soft:#2B2410;--warn:#F2867E;--warn-soft:#3A1714}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--ink);font:15px/1.45 Inter,system-ui,sans-serif}
+h1,h2,h3{font-family:'Space Grotesk',Inter,sans-serif;margin:0}
+button,input,select,textarea{font:inherit}
+.wrap{max-width:1280px;margin:0 auto;padding:20px 16px 60px}
+.top{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:16px}
+.top h1{font-size:26px}
+.who{font-size:13px;color:var(--muted)}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.btn{min-height:44px;padding:10px 16px;border-radius:10px;border:1px solid var(--accent);background:var(--accent);color:var(--on-accent);font-weight:600;cursor:pointer}
+a.btn{display:inline-flex;align-items:center;justify-content:center;text-decoration:none}
+.btn.ghost{background:var(--surface);color:var(--accent)}
+.btn.small{min-height:36px;padding:6px 12px;font-size:13px}
+.btn:disabled{opacity:.45;cursor:default}
+.tab{min-height:44px;padding:10px 16px;border-radius:10px;border:1px solid transparent;background:transparent;color:var(--muted);font-weight:600;cursor:pointer}
+.tab.on{background:var(--accent);color:var(--on-accent)}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:16px 0}
+.kpi span{display:block;font-size:13px;color:var(--muted)}
+.kpi b{font:700 26px 'Space Grotesk',sans-serif}
+.board{overflow-x:auto;padding-bottom:8px}
+.cols{display:flex;gap:12px;width:max-content}
+.col{width:230px;background:var(--col);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:10px;min-height:300px}
+.colh{display:flex;justify-content:space-between;align-items:center;font-weight:700;font-size:14px}
+.count{background:var(--ground);border-radius:999px;padding:1px 9px;font-size:12px}
+.card{text-align:left;width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer;display:flex;flex-direction:column;gap:4px}
+.card b{font-size:14px}
+.card small{font-size:12px;color:var(--muted)}
+.due{color:var(--warn);font-weight:600}
+table{width:100%;border-collapse:collapse;min-width:760px}
+th{text-align:left;font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);padding:10px 12px;border-bottom:1px solid var(--line)}
+td{padding:10px 12px;border-bottom:1px solid var(--col);font-size:14px}
+tr.click{cursor:pointer}tr.click:hover{background:var(--ground)}
+.scroll{overflow-x:auto}
+label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted)}
+input,select,textarea{min-height:44px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--ground);color:var(--ink);font-size:15px}
+textarea{min-height:70px}
+.check{flex-direction:row;align-items:center;gap:8px;color:var(--ink)}
+.check input{min-height:auto;width:20px;height:20px}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);display:flex;justify-content:flex-end;z-index:10}
+.drawer{border-left:1px solid var(--line);width:min(560px,100%);height:100%;overflow-y:auto;background:var(--surface);padding:20px;display:flex;flex-direction:column;gap:16px}
+.pill{display:inline-block;padding:3px 10px;border-radius:999px;background:var(--accent-soft);color:var(--accent);font-size:12px;font-weight:600}
+.note{font-size:12px;color:var(--muted)}
+.warnbox{background:var(--warn-soft);border:1px solid #6A2E28;border-radius:10px;padding:12px;font-size:13px;color:#F6DAD6}
+.acts{display:flex;flex-direction:column;gap:8px}
+.act{border-left:3px solid var(--line);padding:4px 10px;font-size:13px}
+.act time{display:block;font-size:11px;color:var(--muted)}
+.login{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px}
+.login .panel{width:min(380px,100%);display:flex;flex-direction:column;gap:14px;padding:24px}
+.err{color:var(--warn);font-size:13px;min-height:1em;margin:0}
+.linkbtn{background:none;border:0;padding:8px 0;min-height:44px;color:var(--accent);font-weight:600;font-size:13px;cursor:pointer;text-decoration:underline;text-align:left}
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--accent);color:var(--on-accent);font-weight:600;padding:12px 18px;border-radius:10px;font-size:14px;z-index:20}
+.duerow{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;padding:8px 0;border-top:1px solid var(--line)}
+.duerow small{color:var(--muted);flex:1;min-width:160px;font-size:13px}
+.linkname{background:none;border:0;padding:0;min-height:44px;color:var(--ink);font-weight:700;cursor:pointer;text-align:left}
+a.tel{color:var(--accent);font-weight:600}
+h1 em{font-style:normal;color:var(--accent)}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+// ======= PASTE YOUR TWO SUPABASE VALUES HERE =======
+const SUPABASE_URL = 'https://vjiftchpyubsamebbscn.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_slddgiDveLy6RZh6xQrEIA_S2nL2UyB';
+// ===================================================
+
+const STAGES = [
+  ['new_lead','New lead'],['contacted','Contacted'],['docs_requested','Docs requested'],
+  ['docs_received','Docs received'],['in_prep','In prep'],['review','Review'],
+  ['filed','Filed'],['funded','Funded']
+];
+const stageName = id => (STAGES.find(s => s[0] === id) || [id, id])[1];
+const stageIdx = id => STAGES.findIndex(s => s[0] === id);
+// Where email links (confirm account, reset password) send people back to.
+const APP_URL = location.origin + location.pathname;
+// True when someone arrives from a password-reset email link.
+let recovering = location.hash.includes('type=recovery');
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+sb.auth.onAuthStateChange(event => {
+  if (event === 'PASSWORD_RECOVERY') { recovering = true; renderNewPassword(); }
+});
+const S = { me: null, agents: [], clients: [], tab: 'pipeline', filter: 'all', q: '' };
+const $ = s => document.querySelector(s);
+const app = $('#app');
+const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money = n => (n == null || n === '') ? '—' : '$' + Number(n).toLocaleString('en-US');
+const isAdmin = () => S.me && S.me.role === 'admin';
+const agentName = id => (S.agents.find(a => a.id === id) || {}).full_name || 'Unassigned';
+const isDone = c => c.stage === 'filed' || c.stage === 'funded';
+const ymd = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+const today = () => ymd(new Date()); // local date, not UTC
+const fmtDate = s => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); };
+const telOf = c => String(c.phone || '').replace(/[^\d+]/g, '');
+const phoneBtns = c => telOf(c) ? `<span class="row"><a class="btn small" href="tel:${esc(telOf(c))}">Call</a><a class="btn ghost small" href="sms:${esc(telOf(c))}">Text</a></span>` : '';
+const followClass = c => (c.next_follow_up && c.next_follow_up <= today() && !isDone(c)) ? 'due' : '';
+function toast(msg) { const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), 3200); }
+
+// ---------- Login ----------
+function renderLogin(msg = '') {
+  app.innerHTML = `<main class="login"><form id="lf" class="panel">
+    <h1>Money Matter <em>CRM</em></h1>
+    <label>Email<input name="email" type="email" required autocomplete="username"></label>
+    <label>Password<input name="password" type="password" required autocomplete="current-password"></label>
+    <button class="btn">Log in</button>
+    <p class="err">${esc(msg)}</p>
+    <div class="row" style="justify-content:space-between">
+      <button type="button" class="linkbtn" id="toSignup">New agent? Create your account</button>
+      <button type="button" class="linkbtn" id="toForgot">Forgot password?</button>
+    </div></form></main>`;
+  $('#toSignup').onclick = () => renderSignup();
+  $('#toForgot').onclick = () => renderForgot();
+  $('#lf').onsubmit = async e => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    const { error } = await sb.auth.signInWithPassword({ email: f.get('email').trim().toLowerCase(), password: f.get('password') });
+    if (error) return renderLogin(error.message);
+    loadAll();
+  };
+}
+
+// ---------- Create account (agents do this themselves) ----------
+function renderSignup(msg = '') {
+  app.innerHTML = `<main class="login"><form id="sf" class="panel">
+    <h1>Create your account</h1>
+    <p class="note" style="margin:0">Use the email you check every day. Theo turns on your access after you sign up.</p>
+    <label>Full name<input name="name" required autocomplete="name"></label>
+    <label>Email<input name="email" type="email" required autocomplete="username"></label>
+    <label>Password (8+ characters)<input name="password" type="password" required minlength="8" autocomplete="new-password"></label>
+    <label>Confirm password<input name="confirm" type="password" required minlength="8" autocomplete="new-password"></label>
+    <button class="btn">Create account</button>
+    <p class="err">${esc(msg)}</p>
+    <button type="button" class="linkbtn" id="toLogin">Back to log in</button></form></main>`;
+  $('#toLogin').onclick = () => renderLogin();
+  $('#sf').onsubmit = async e => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    if (f.get('password') !== f.get('confirm')) return renderSignup('Passwords do not match.');
+    const { data, error } = await sb.auth.signUp({
+      email: f.get('email').trim().toLowerCase(), password: f.get('password'),
+      options: { emailRedirectTo: APP_URL, data: { full_name: f.get('name').trim() } }
+    });
+    if (error) return renderSignup(error.message);
+    if (data.session) return loadAll();
+    renderMessage('Check your email', 'We sent you a confirmation link. Tap it, then come back and log in.');
+  };
+}
+
+// ---------- Forgot password ----------
+function renderForgot(msg = '') {
+  app.innerHTML = `<main class="login"><form id="ff" class="panel">
+    <h1>Reset your password</h1>
+    <label>Email<input name="email" type="email" required autocomplete="username"></label>
+    <button class="btn">Email me a reset link</button>
+    <p class="err">${esc(msg)}</p>
+    <button type="button" class="linkbtn" id="toLogin">Back to log in</button></form></main>`;
+  $('#toLogin').onclick = () => renderLogin();
+  $('#ff').onsubmit = async e => {
+    e.preventDefault();
+    const email = new FormData(e.target).get('email').trim().toLowerCase();
+    const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: APP_URL });
+    if (error) return renderForgot(error.message);
+    renderMessage('Check your email', 'If that email has an account, a reset link is on the way. It can take a few minutes.');
+  };
+}
+
+function renderNewPassword(msg = '') {
+  app.innerHTML = `<main class="login"><form id="pf" class="panel">
+    <h1>Set a new password</h1>
+    <label>New password (8+ characters)<input name="password" type="password" required minlength="8" autocomplete="new-password"></label>
+    <label>Confirm password<input name="confirm" type="password" required minlength="8" autocomplete="new-password"></label>
+    <button class="btn">Save password</button>
+    <p class="err">${esc(msg)}</p></form></main>`;
+  $('#pf').onsubmit = async e => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    if (f.get('password') !== f.get('confirm')) return renderNewPassword('Passwords do not match.');
+    const { error } = await sb.auth.updateUser({ password: f.get('password') });
+    if (error) return renderNewPassword(error.message);
+    recovering = false;
+    toast('Password saved'); loadAll();
+  };
+}
+
+function renderMessage(title, body) {
+  app.innerHTML = `<main class="login"><div class="panel"><h1>${esc(title)}</h1><p style="margin:0">${esc(body)}</p>
+    <button class="btn" id="toLogin">Back to log in</button></div></main>`;
+  $('#toLogin').onclick = () => renderLogin();
+}
+async function logout() { await sb.auth.signOut(); S.me = null; renderLogin(); }
+
+// ---------- Data ----------
+async function loadAll() {
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) return renderLogin();
+  if (recovering) return renderNewPassword();
+  const { data: me } = await sb.from('agents').select('*').eq('id', user.id).maybeSingle();
+  if (!me || !me.active) {
+    app.innerHTML = `<main class="login"><div class="panel"><h1>Almost in</h1>
+      <p>Your account (${esc(user.email)}) is created, but your access isn't turned on yet. Text Theo this email so he can add you.</p>
+      <button class="btn" id="lo">Log out</button></div></main>`;
+    $('#lo').onclick = logout; return;
+  }
+  S.me = me;
+  const [a, c] = await Promise.all([
+    sb.from('agents').select('*').order('full_name'),
+    sb.from('clients').select('*').order('created_at', { ascending: false })
+  ]);
+  if (c.error) toast(c.error.message);
+  S.agents = a.data || [me];
+  S.clients = c.data || [];
+  render();
+}
+const visible = () => S.filter === 'all' ? S.clients : S.clients.filter(c => c.agent_id === S.filter);
+
+// ---------- Main screen ----------
+function render() {
+  const v = visible();
+  const booked = v.filter(isDone).reduce((t, c) => t + Number(c.fee || 0), 0);
+  const tabs = [['pipeline','Pipeline'],['clients','Clients']].concat(isAdmin() ? [['agents','Agents']] : []);
+  app.innerHTML = `<div class="wrap">
+    <header class="top">
+      <div><h1>Money Matter <em>CRM</em></h1><div class="who">${esc(S.me.full_name)} · ${isAdmin() ? 'Admin' : 'Agent'}</div></div>
+      <div class="row">
+        <nav class="row" aria-label="Sections">${tabs.map(t => `<button class="tab ${S.tab === t[0] ? 'on' : ''}" data-tab="${t[0]}">${t[1]}</button>`).join('')}</nav>
+        <button class="btn" id="add">+ New client</button>
+        <button class="btn ghost" id="lo">Log out</button>
+      </div>
+    </header>
+    ${isAdmin() ? `<div class="row"><label style="flex-direction:row;align-items:center;gap:8px">View
+      <select id="flt"><option value="all">All agents</option>${S.agents.map(a => `<option value="${a.id}" ${S.filter === a.id ? 'selected' : ''}>${esc(a.full_name)}</option>`).join('')}</select></label></div>` : ''}
+    <section class="kpis">
+      <div class="panel kpi"><span>Active (not filed)</span><b>${v.filter(c => !isDone(c)).length}</b></div>
+      <div class="panel kpi"><span>Filed</span><b>${v.filter(isDone).length}</b></div>
+      <div class="panel kpi"><span>Funded</span><b>${v.filter(c => c.stage === 'funded').length}</b></div>
+      <div class="panel kpi"><span>Fees booked</span><b style="color:var(--accent)">${money(booked)}</b></div>
+    </section>
+    ${S.tab !== 'agents' ? `<div class="row" style="margin-bottom:12px"><input id="q" type="search" placeholder="Search name, phone or email" aria-label="Search clients" value="${esc(S.q)}" style="flex:1;min-width:220px"></div>` : ''}
+    <section id="due"></section>
+    <section id="body"></section></div>`;
+  app.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { S.tab = b.dataset.tab; render(); });
+  $('#add').onclick = () => openClient(null);
+  $('#lo').onclick = logout;
+  if ($('#flt')) $('#flt').onchange = e => { S.filter = e.target.value; render(); };
+  if ($('#q')) $('#q').oninput = e => { S.q = e.target.value; renderBody(); };
+  renderBody();
+}
+
+function shown() {
+  const v = visible(), q = S.q.trim().toLowerCase();
+  if (!q) return v;
+  const qd = q.replace(/\D/g, '');
+  return v.filter(c => [c.full_name, c.email, c.phone].some(x => String(x || '').toLowerCase().includes(q))
+    || (qd && String(c.phone || '').replace(/\D/g, '').includes(qd)));
+}
+
+function renderBody() {
+  if (S.tab === 'agents') { $('#due').innerHTML = ''; return renderAgents(); }
+  const v = shown();
+  renderDue(v);
+  if (S.tab === 'pipeline') renderPipeline(v); else renderClients(v);
+}
+
+// ---------- Follow up today ----------
+function renderDue(v) {
+  const t = today();
+  const due = v.filter(c => c.next_follow_up && c.next_follow_up <= t && !isDone(c))
+    .sort((a, b) => a.next_follow_up.localeCompare(b.next_follow_up));
+  $('#due').innerHTML = due.length ? `<div class="panel" style="margin-bottom:16px;display:flex;flex-direction:column;gap:6px">
+    <h2 style="font-size:18px;display:flex;align-items:center;gap:8px">Follow up today <span class="count">${due.length}</span></h2>
+    ${due.map(c => `<div class="duerow"><button class="linkname" data-id="${c.id}">${esc(c.full_name)}</button>
+      <small>${stageName(c.stage)} · <span class="due">${c.next_follow_up < t ? 'Overdue since ' + fmtDate(c.next_follow_up) : 'Today'}</span>${isAdmin() ? ' · ' + esc(agentName(c.agent_id)) : ''}</small>
+      ${phoneBtns(c)}</div>`).join('')}</div>` : '';
+  $('#due').querySelectorAll('[data-id]').forEach(b => b.onclick = () => openClient(b.dataset.id));
+}
+
+function renderPipeline(v) {
+  $('#body').innerHTML = `<div class="board"><div class="cols">${STAGES.map(([id, name]) => {
+    const cards = v.filter(c => c.stage === id);
+    return `<div class="col"><div class="colh">${name}<span class="count">${cards.length}</span></div>
+      ${cards.map(c => `<button class="card" data-id="${c.id}"><b>${esc(c.full_name)}</b>
+        <small>${esc(c.return_type || 'Return type not set')} · ${money(c.fee)}</small>
+        ${isAdmin() ? `<small>Agent: ${esc(agentName(c.agent_id))}</small>` : ''}
+        <small class="${followClass(c)}">Follow up: ${esc(c.next_follow_up || '—')}</small></button>`).join('')}
+    </div>`;
+  }).join('')}</div></div>`;
+  $('#body').querySelectorAll('[data-id]').forEach(b => b.onclick = () => openClient(b.dataset.id));
+}
+
+function renderClients(v) {
+  $('#body').innerHTML = `<div class="panel scroll" style="padding:0"><table><thead><tr>
+    <th>Client</th><th>Phone</th><th>Stage</th>${isAdmin() ? '<th>Agent</th>' : ''}<th>Fee</th><th>Source</th><th>Follow up</th></tr></thead>
+    <tbody>${v.map(c => `<tr class="click" data-id="${c.id}"><td><b>${esc(c.full_name)}</b></td><td>${c.phone ? `<a class="tel" href="tel:${esc(telOf(c))}">${esc(c.phone)}</a>` : ''}</td>
+      <td>${stageName(c.stage)}</td>${isAdmin() ? `<td>${esc(agentName(c.agent_id))}</td>` : ''}<td>${money(c.fee)}</td>
+      <td>${esc(c.lead_source)}</td><td class="${followClass(c)}">${esc(c.next_follow_up || '—')}</td></tr>`).join('') ||
+      `<tr><td colspan="7">No clients yet. Click "+ New client" to add one.</td></tr>`}</tbody></table></div>`;
+  $('#body').querySelectorAll('[data-id]').forEach(r => r.onclick = () => openClient(r.dataset.id));
+  $('#body').querySelectorAll('a.tel').forEach(a => a.onclick = e => e.stopPropagation());
+}
+
+// ---------- Agents (admin) ----------
+function renderAgents() {
+  $('#body').innerHTML = `<div class="panel" style="margin-bottom:16px;display:flex;flex-direction:column;gap:12px">
+      <h2 style="font-size:20px">Add an agent</h2>
+      <p class="note" style="margin:0">The agent creates their own account on the login screen first ("New agent? Create your account"). Then add them here with the same email to turn on their access.</p>
+      <form id="af" class="grid2"><label>Full name<input name="name" required></label>
+        <label>Email<input name="email" type="email" required></label>
+        <div style="display:flex;align-items:flex-end"><button class="btn">Add agent</button></div></form>
+    </div>
+    <div class="panel scroll" style="padding:0"><table><thead><tr><th>Agent</th><th>Clients</th><th>Filed</th><th>Funded</th><th>Fees booked</th>
+      <th>Cognito access</th><th>File w/o review</th><th>Active</th></tr></thead><tbody>
+      ${S.agents.map(a => {
+        const mine = S.clients.filter(c => c.agent_id === a.id);
+        const self = a.id === S.me.id;
+        return `<tr><td><b>${esc(a.full_name)}</b><br><span class="note">${esc(a.email)}${a.role === 'admin' ? ' · Admin' : ''}</span></td>
+          <td>${mine.length}</td><td>${mine.filter(isDone).length}</td><td>${mine.filter(c => c.stage === 'funded').length}</td>
+          <td>${money(mine.filter(isDone).reduce((t, c) => t + Number(c.fee || 0), 0))}</td>
+          ${['cognito_access','can_file_without_review','active'].map(f => `<td><input type="checkbox" aria-label="${f} for ${esc(a.full_name)}" data-a="${a.id}" data-f="${f}" ${a[f] ? 'checked' : ''} ${self ? 'disabled' : ''}></td>`).join('')}</tr>`;
+      }).join('')}</tbody></table></div>`;
+  $('#af').onsubmit = async e => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    const { data, error } = await sb.rpc('add_agent_by_email', { p_email: f.get('email'), p_name: f.get('name') });
+    if (error) return toast(error.message);
+    toast(data); loadAll();
+  };
+  $('#body').querySelectorAll('[data-f]').forEach(cb => cb.onchange = async () => {
+    const { error } = await sb.from('agents').update({ [cb.dataset.f]: cb.checked }).eq('id', cb.dataset.a);
+    if (error) { toast(error.message); cb.checked = !cb.checked; return; }
+    const a = S.agents.find(x => x.id === cb.dataset.a); a[cb.dataset.f] = cb.checked; toast('Saved');
+  });
+}
+
+// ---------- Client drawer ----------
+async function openClient(id) {
+  const c = id ? S.clients.find(x => x.id === id) : { stage: 'new_lead', agent_id: S.me.id, bank_product: false, returning_client: false };
+  let cognito = null, acts = [];
+  if (id) {
+    const [cg, ac] = await Promise.all([
+      sb.from('client_cognito').select('*').eq('client_id', id).maybeSingle(),
+      sb.from('activities').select('*').eq('client_id', id).order('created_at', { ascending: false }).limit(50)
+    ]);
+    cognito = cg.data; acts = ac.data || [];
+  }
+  const canCognito = S.me.role === 'admin' || S.me.cognito_access;
+  const i = stageIdx(c.stage);
+  const ov = document.createElement('div');
+  ov.className = 'overlay';
+  ov.innerHTML = `<aside class="drawer" role="dialog" aria-label="Client details">
+    <div class="row" style="justify-content:space-between">
+      <div><h2>${id ? esc(c.full_name) : 'New client'}</h2>${id ? `<span class="pill">${stageName(c.stage)}</span>` : ''}</div>
+      <button class="btn ghost small" id="x">Close</button></div>
+    ${id ? `<div class="row">
+      <button class="btn ghost small" id="back" ${i <= 0 ? 'disabled' : ''}>← Back a stage</button>
+      <button class="btn small" id="next" ${i >= STAGES.length - 1 ? 'disabled' : ''}>Move to ${i < STAGES.length - 1 ? stageName(STAGES[i + 1][0]) : '—'} →</button>${phoneBtns(c)}</div>` : ''}
+    <form id="cf" class="grid2">
+      <label>Full name<input name="full_name" required value="${esc(c.full_name)}"></label>
+      <label>Phone<input name="phone" type="tel" value="${esc(c.phone)}"></label>
+      <label>Email<input name="email" type="email" value="${esc(c.email)}"></label>
+      <label>State<input name="state" maxlength="2" value="${esc(c.state)}"></label>
+      <label>Return type<select name="return_type">${['', 'W-2', 'W-2 + dependents', '1099 / gig', 'Self-employed', 'W-2 + rental', 'Other']
+        .map(o => `<option ${c.return_type === o ? 'selected' : ''}>${o}</option>`).join('')}</select></label>
+      <label>Fee ($)<input name="fee" type="number" min="0" step="1" value="${esc(c.fee)}"></label>
+      <label>Lead source<select name="lead_source">${['', 'Meta ad', 'Referral', 'Field event', 'Google profile', 'Website', 'Returning', 'Other']
+        .map(o => `<option ${c.lead_source === o ? 'selected' : ''}>${o}</option>`).join('')}</select></label>
+      <label>Campaign / ad<input name="campaign" value="${esc(c.campaign)}"></label>
+      <label>Next follow-up<input name="next_follow_up" type="date" value="${esc(c.next_follow_up)}"></label>
+      ${isAdmin() ? `<label>Agent<select name="agent_id">${S.agents.map(a => `<option value="${a.id}" ${c.agent_id === a.id ? 'selected' : ''}>${esc(a.full_name)}</option>`).join('')}</select></label>` : ''}
+      <label class="check"><input type="checkbox" name="bank_product" ${c.bank_product ? 'checked' : ''}> Bank product</label>
+      <label class="check"><input type="checkbox" name="returning_client" ${c.returning_client ? 'checked' : ''}> Returning client</label>
+      <div style="grid-column:1/-1"><button class="btn">${id ? 'Save changes' : 'Add client'}</button></div>
+    </form>
+    <div class="warnbox">Never put SSNs, IDs, bank numbers or tax documents here. Those go in Cognito and the tax software.</div>
+    ${id && canCognito ? `<div class="panel" style="display:flex;flex-direction:column;gap:10px"><h3 style="font-size:16px">Cognito entry</h3>
+      ${cognito && cognito.entry_url ? `<a href="${esc(cognito.entry_url)}" target="_blank" rel="noopener" class="btn" style="text-align:center;text-decoration:none">View in Cognito</a>` : '<p class="note" style="margin:0">No Cognito entry linked yet.</p>'}
+      ${isAdmin() ? `<form id="cgf" class="row"><input name="url" type="url" placeholder="Paste Cognito entry link" style="flex:1" value="${esc(cognito && cognito.entry_url)}"><button class="btn small">Save link</button></form>` : ''}
+    </div>` : ''}
+    ${id ? `<div style="display:flex;flex-direction:column;gap:10px"><h3 style="font-size:16px">Activity</h3>
+      <form id="nf" class="row"><select name="kind" style="width:110px"><option value="note">Note</option><option value="call">Call</option><option value="text">Text</option></select>
+        <input name="body" placeholder="What happened?" required style="flex:1"><button class="btn small">Add</button></form>
+      <div class="acts">${acts.map(a => `<div class="act"><time>${new Date(a.created_at).toLocaleString()} · ${esc(agentName(a.agent_id))}</time>
+        <b>${esc(a.kind.replace('_', ' '))}:</b> ${esc(a.body)}</div>`).join('') || '<p class="note">No activity yet.</p>'}</div></div>` : ''}
+  </aside>`;
+  document.body.appendChild(ov);
+  const close = () => ov.remove();
+  ov.onclick = e => { if (e.target === ov) close(); };
+  ov.querySelector('#x').onclick = close;
+
+  ov.querySelector('#cf').onsubmit = async e => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    const rec = {
+      full_name: f.get('full_name').trim(), phone: f.get('phone') || null, email: (f.get('email') || '').toLowerCase() || null,
+      state: (f.get('state') || '').toUpperCase() || null, return_type: f.get('return_type') || null,
+      fee: f.get('fee') === '' ? null : Number(f.get('fee')), lead_source: f.get('lead_source') || null,
+      campaign: f.get('campaign') || null, next_follow_up: f.get('next_follow_up') || null,
+      bank_product: f.get('bank_product') === 'on', returning_client: f.get('returning_client') === 'on',
+      agent_id: isAdmin() ? f.get('agent_id') : (c.agent_id || S.me.id)
+    };
+    const q = id ? sb.from('clients').update(rec).eq('id', id) : sb.from('clients').insert(rec);
+    const { error } = await q;
+    if (error) return toast(error.message);
+    toast(id ? 'Saved' : 'Client added'); close(); loadAll();
+  };
+
+  const move = async d => {
+    const { error } = await sb.from('clients').update({ stage: STAGES[i + d][0] }).eq('id', id);
+    if (error) return toast(error.message);
+    toast('Moved to ' + stageName(STAGES[i + d][0])); close(); loadAll();
+  };
+  if (id) { ov.querySelector('#next').onclick = () => move(1); ov.querySelector('#back').onclick = () => move(-1); }
+
+  const cgf = ov.querySelector('#cgf');
+  if (cgf) cgf.onsubmit = async e => {
+    e.preventDefault();
+    const url = new FormData(e.target).get('url').trim();
+    const { error } = await sb.from('client_cognito').upsert({ client_id: id, entry_url: url || null, submitted_at: url ? new Date().toISOString() : null });
+    if (error) return toast(error.message);
+    toast('Cognito link saved'); close(); openClient(id);
+  };
+
+  const nf = ov.querySelector('#nf');
+  if (nf) nf.onsubmit = async e => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    const { error } = await sb.from('activities').insert({ client_id: id, agent_id: S.me.id, kind: f.get('kind'), body: f.get('body') });
+    if (error) return toast(error.message);
+    close(); openClient(id);
+  };
+}
+
+// ---------- Start ----------
+if (SUPABASE_URL.startsWith('PASTE')) {
+  app.innerHTML = '<main class="login"><div class="panel"><h1>Almost there</h1><p>Paste your Supabase URL and publishable key at the top of this file.</p></div></main>';
+} else {
+  sb.auth.getSession().then(({ data: { session } }) => session ? loadAll() : renderLogin());
+}
+</script>
+</body>
+</html>
