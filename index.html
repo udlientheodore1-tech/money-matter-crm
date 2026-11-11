@@ -21,6 +21,7 @@ button,input,select,textarea{font:inherit}
 .btn{min-height:44px;padding:10px 16px;border-radius:10px;border:1px solid var(--accent);background:var(--accent);color:var(--on-accent);font-weight:600;cursor:pointer}
 a.btn{display:inline-flex;align-items:center;justify-content:center;text-decoration:none}
 .btn.ghost{background:var(--surface);color:var(--accent)}
+.btn.danger{border-color:var(--warn);color:var(--warn)}
 .btn.small{min-height:36px;padding:6px 12px;font-size:13px}
 .btn:disabled{opacity:.45;cursor:default}
 .tab{min-height:44px;padding:10px 16px;border-radius:10px;border:1px solid transparent;background:transparent;color:var(--muted);font-weight:600;cursor:pointer}
@@ -281,7 +282,7 @@ function renderDue(v) {
   $('#due').innerHTML = due.length ? `<div class="panel" style="margin-bottom:16px;display:flex;flex-direction:column;gap:6px">
     <h2 style="font-size:18px;display:flex;align-items:center;gap:8px">Follow up today <span class="count">${due.length}</span></h2>
     ${due.map(c => `<div class="duerow"><button class="linkname" data-id="${c.id}">${esc(c.full_name)}</button>
-      <small>${stageName(c.stage)} · <span class="due">${c.next_follow_up < t ? 'Overdue since ' + fmtDate(c.next_follow_up) : 'Today'}</span>${isAdmin() ? ' · ' + esc(agentName(c.agent_id)) : ''}</small>
+      <small>${stageName(c.stage)}${c.language ? ' · ' + esc(c.language) : ''} · <span class="due">${c.next_follow_up < t ? 'Overdue since ' + fmtDate(c.next_follow_up) : 'Today'}</span>${isAdmin() ? ' · ' + esc(agentName(c.agent_id)) : ''}</small>
       ${phoneBtns(c)}</div>`).join('')}</div>` : '';
   $('#due').querySelectorAll('[data-id]').forEach(b => b.onclick = () => openClient(b.dataset.id));
 }
@@ -291,7 +292,7 @@ function renderPipeline(v) {
     const cards = v.filter(c => c.stage === id);
     return `<div class="col"><div class="colh">${name}<span class="count">${cards.length}</span></div>
       ${cards.map(c => `<button class="card" data-id="${c.id}"><b>${esc(c.full_name)}</b>
-        <small>${esc(c.return_type || 'Return type not set')} · ${money(c.fee)}</small>
+        <small>${esc(c.return_type || 'Return type not set')} · ${money(c.fee)}${c.language ? ' · ' + esc(c.language) : ''}</small>
         ${isAdmin() ? `<small>Agent: ${esc(agentName(c.agent_id))}</small>` : ''}
         <small class="${followClass(c)}">Follow up: ${esc(c.next_follow_up || '—')}</small></button>`).join('')}
     </div>`;
@@ -301,11 +302,11 @@ function renderPipeline(v) {
 
 function renderClients(v) {
   $('#body').innerHTML = `<div class="panel scroll" style="padding:0"><table><thead><tr>
-    <th>Client</th><th>Phone</th><th>Stage</th>${isAdmin() ? '<th>Agent</th>' : ''}<th>Fee</th><th>Source</th><th>Follow up</th></tr></thead>
-    <tbody>${v.map(c => `<tr class="click" data-id="${c.id}"><td><b>${esc(c.full_name)}</b></td><td>${c.phone ? `<a class="tel" href="tel:${esc(telOf(c))}">${esc(c.phone)}</a>` : ''}</td>
+    <th>Client</th><th>Phone</th><th>Language</th><th>Stage</th>${isAdmin() ? '<th>Agent</th>' : ''}<th>Fee</th><th>Source</th><th>Follow up</th></tr></thead>
+    <tbody>${v.map(c => `<tr class="click" data-id="${c.id}"><td><b>${esc(c.full_name)}</b></td><td>${c.phone ? `<a class="tel" href="tel:${esc(telOf(c))}">${esc(c.phone)}</a>` : ''}</td><td>${esc(c.language)}</td>
       <td>${stageName(c.stage)}</td>${isAdmin() ? `<td>${esc(agentName(c.agent_id))}</td>` : ''}<td>${money(c.fee)}</td>
       <td>${esc(c.lead_source)}</td><td class="${followClass(c)}">${esc(c.next_follow_up || '—')}</td></tr>`).join('') ||
-      `<tr><td colspan="7">No clients yet. Click "+ New client" to add one.</td></tr>`}</tbody></table></div>`;
+      `<tr><td colspan="8">No clients yet. Click "+ New client" to add one.</td></tr>`}</tbody></table></div>`;
   $('#body').querySelectorAll('[data-id]').forEach(r => r.onclick = () => openClient(r.dataset.id));
   $('#body').querySelectorAll('a.tel').forEach(a => a.onclick = e => e.stopPropagation());
 }
@@ -370,6 +371,8 @@ async function openClient(id) {
       <label>Phone<input name="phone" type="tel" value="${esc(c.phone)}"></label>
       <label>Email<input name="email" type="email" value="${esc(c.email)}"></label>
       <label>State<input name="state" maxlength="2" value="${esc(c.state)}"></label>
+      <label>Language<select name="language">${['', 'English', 'Kreyòl', 'Español']
+        .map(o => `<option ${c.language === o ? 'selected' : ''}>${o}</option>`).join('')}</select></label>
       <label>Return type<select name="return_type">${['', 'W-2', 'W-2 + dependents', '1099 / gig', 'Self-employed', 'W-2 + rental', 'Other']
         .map(o => `<option ${c.return_type === o ? 'selected' : ''}>${o}</option>`).join('')}</select></label>
       <label>Fee ($)<input name="fee" type="number" min="0" step="1" value="${esc(c.fee)}"></label>
@@ -380,7 +383,8 @@ async function openClient(id) {
       ${isAdmin() ? `<label>Agent<select name="agent_id">${S.agents.map(a => `<option value="${a.id}" ${c.agent_id === a.id ? 'selected' : ''}>${esc(a.full_name)}</option>`).join('')}</select></label>` : ''}
       <label class="check"><input type="checkbox" name="bank_product" ${c.bank_product ? 'checked' : ''}> Bank product</label>
       <label class="check"><input type="checkbox" name="returning_client" ${c.returning_client ? 'checked' : ''}> Returning client</label>
-      <div style="grid-column:1/-1"><button class="btn">${id ? 'Save changes' : 'Add client'}</button></div>
+      <div class="row" style="grid-column:1/-1;justify-content:space-between"><button class="btn">${id ? 'Save changes' : 'Add client'}</button>
+        ${id && isAdmin() ? '<button type="button" class="btn ghost danger" id="del">Delete client</button>' : ''}</div>
     </form>
     <div class="warnbox">Never put SSNs, IDs, bank numbers or tax documents here. Those go in Cognito and the tax software.</div>
     ${id && canCognito ? `<div class="panel" style="display:flex;flex-direction:column;gap:10px"><h3 style="font-size:16px">Cognito entry</h3>
@@ -403,7 +407,7 @@ async function openClient(id) {
     const f = new FormData(e.target);
     const rec = {
       full_name: f.get('full_name').trim(), phone: f.get('phone') || null, email: (f.get('email') || '').toLowerCase() || null,
-      state: (f.get('state') || '').toUpperCase() || null, return_type: f.get('return_type') || null,
+      state: (f.get('state') || '').toUpperCase() || null, language: f.get('language') || null, return_type: f.get('return_type') || null,
       fee: f.get('fee') === '' ? null : Number(f.get('fee')), lead_source: f.get('lead_source') || null,
       campaign: f.get('campaign') || null, next_follow_up: f.get('next_follow_up') || null,
       bank_product: f.get('bank_product') === 'on', returning_client: f.get('returning_client') === 'on',
@@ -421,6 +425,18 @@ async function openClient(id) {
     toast('Moved to ' + stageName(STAGES[i + d][0])); close(); loadAll();
   };
   if (id) { ov.querySelector('#next').onclick = () => move(1); ov.querySelector('#back').onclick = () => move(-1); }
+
+  const del = ov.querySelector('#del');
+  if (del) del.onclick = async () => {
+    if (!del.dataset.sure) { del.dataset.sure = '1'; del.textContent = 'Tap again to delete for good'; return; }
+    del.disabled = true;
+    await sb.from('activities').delete().eq('client_id', id);
+    await sb.from('client_cognito').delete().eq('client_id', id);
+    const { data, error } = await sb.from('clients').delete().eq('id', id).select('id');
+    if (error) { del.disabled = false; return toast(error.message); }
+    if (!data || !data.length) { del.disabled = false; return toast('Delete was blocked by the database rules.'); }
+    toast('Client deleted'); close(); loadAll();
+  };
 
   const cgf = ov.querySelector('#cgf');
   if (cgf) cgf.onsubmit = async e => {
