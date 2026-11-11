@@ -301,7 +301,10 @@ function renderPipeline(v) {
 }
 
 function renderClients(v) {
-  $('#body').innerHTML = `<div class="panel scroll" style="padding:0"><table><thead><tr>
+  $('#body').innerHTML = `${isAdmin() ? `<div class="row" style="margin-bottom:12px">
+      <button class="btn ghost small" id="imp">Import clients</button>
+      <button class="btn ghost small" id="exp">Export clients</button></div>` : ''}
+    <div class="panel scroll" style="padding:0"><table><thead><tr>
     <th>Client</th><th>Phone</th><th>Language</th><th>Stage</th>${isAdmin() ? '<th>Agent</th>' : ''}<th>Fee</th><th>Source</th><th>Follow up</th></tr></thead>
     <tbody>${v.map(c => `<tr class="click" data-id="${c.id}"><td><b>${esc(c.full_name)}</b></td><td>${c.phone ? `<a class="tel" href="tel:${esc(telOf(c))}">${esc(c.phone)}</a>` : ''}</td><td>${esc(c.language)}</td>
       <td>${stageName(c.stage)}</td>${isAdmin() ? `<td>${esc(agentName(c.agent_id))}</td>` : ''}<td>${money(c.fee)}</td>
@@ -309,6 +312,110 @@ function renderClients(v) {
       `<tr><td colspan="8">No clients yet. Click "+ New client" to add one.</td></tr>`}</tbody></table></div>`;
   $('#body').querySelectorAll('[data-id]').forEach(r => r.onclick = () => openClient(r.dataset.id));
   $('#body').querySelectorAll('a.tel').forEach(a => a.onclick = e => e.stopPropagation());
+  if ($('#imp')) { $('#imp').onclick = openImport; $('#exp').onclick = exportClients; }
+}
+
+// ---------- Import / export (admin) ----------
+function parseCSV(text) {
+  const rows = []; let row = [], cur = '', q = false;
+  text = text.replace(/^\uFEFF/, '');
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) { if (ch === '"') { if (text[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += ch; }
+    else if (ch === '"') q = true;
+    else if (ch === ',') { row.push(cur); cur = ''; }
+    else if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && text[i + 1] === '\n') i++;
+      row.push(cur); cur = ''; if (row.some(x => x.trim())) rows.push(row); row = [];
+    } else cur += ch;
+  }
+  row.push(cur); if (row.some(x => x.trim())) rows.push(row);
+  return rows;
+}
+const digits = v => String(v || '').replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '');
+const LANGS = { english: 'English', en: 'English', kreyol: 'Kreyòl', 'kreyòl': 'Kreyòl', creole: 'Kreyòl', 'haitian creole': 'Kreyòl', espanol: 'Español', 'español': 'Español', spanish: 'Español' };
+function csvToClients(text) {
+  const rows = parseCSV(text);
+  if (rows.length < 2) return { error: 'That file looks empty.' };
+  const head = rows[0].map(h => h.trim().toLowerCase());
+  const col = (...names) => head.findIndex(h => names.includes(h));
+  const iName = col('full name', 'name', 'client', 'client name', 'full_name');
+  const iFirst = col('first name', 'first', 'firstname', 'first_name'), iLast = col('last name', 'last', 'lastname', 'last_name');
+  const iPhone = col('phone', 'cell', 'mobile', 'phone number', 'cell phone'), iEmail = col('email', 'email address', 'e-mail');
+  const iState = col('state', 'st'), iLang = col('language', 'lang');
+  if (iName < 0 && iFirst < 0) return { error: 'No name column found. The first row needs a "Full name" column (or "First name" and "Last name").' };
+  const have = new Set(S.clients.map(c => digits(c.phone)).filter(Boolean));
+  let skipped = 0, dupes = 0; const list = [];
+  rows.slice(1).forEach(r => {
+    const g = i => i >= 0 ? (r[i] || '').trim() : '';
+    const name = g(iName) || [g(iFirst), g(iLast)].filter(Boolean).join(' ');
+    if (!name) return skipped++;
+    const ph = digits(g(iPhone));
+    if (ph && have.has(ph)) return dupes++;
+    if (ph) have.add(ph);
+    const st = g(iState).toUpperCase();
+    list.push({ full_name: name, phone: g(iPhone) || null, email: g(iEmail).toLowerCase() || null,
+      state: st.length === 2 ? st : null, language: LANGS[g(iLang).toLowerCase()] || null });
+  });
+  return { list, skipped, dupes };
+}
+function downloadFile(name, text) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['\uFEFF' + text], { type: 'text/csv' }));
+  a.download = name; document.body.appendChild(a); a.click(); a.remove();
+}
+const csvCell = v => { v = v == null ? '' : String(v); if (/^[=@]/.test(v)) v = "'" + v; return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+function exportClients() {
+  const cols = ['full_name', 'phone', 'email', 'state', 'language', 'stage', 'agent', 'return_type', 'fee', 'lead_source', 'campaign', 'next_follow_up', 'bank_product', 'returning_client'];
+  const lines = [cols.join(',')].concat(visible().map(c => cols.map(k =>
+    csvCell(k === 'agent' ? agentName(c.agent_id) : k === 'stage' ? stageName(c.stage) : c[k])).join(',')));
+  downloadFile('money-matter-clients-' + today() + '.csv', lines.join('\r\n'));
+  toast('Exported ' + visible().length + ' clients');
+}
+function openImport() {
+  let parsed = null;
+  const ov = document.createElement('div');
+  ov.className = 'overlay';
+  ov.innerHTML = `<aside class="drawer" role="dialog" aria-label="Import clients">
+    <div class="row" style="justify-content:space-between"><h2>Import clients</h2><button class="btn ghost small" id="x">Close</button></div>
+    <p style="margin:0">Upload a spreadsheet saved as <b>CSV</b>. The first row must be column names: <b>Full name, Phone, Email, State, Language</b>. Only Full name is required.</p>
+    <div class="warnbox">Leave out SSNs, dates of birth, bank numbers and anything from the tax return. Only the columns above are imported; everything else in the file is ignored.</div>
+    <button class="btn ghost small" id="tpl" style="align-self:flex-start">Download a blank template</button>
+    <label>Assign these clients to<select id="iag">${S.agents.map(a => `<option value="${a.id}" ${a.id === S.me.id ? 'selected' : ''}>${esc(a.full_name)}</option>`).join('')}</select></label>
+    <label>CSV file<input id="ifile" type="file" accept=".csv,text/csv"></label>
+    <p id="iprev" class="note" style="margin:0">No file chosen yet.</p>
+    <button class="btn" id="igo" disabled>Import</button>
+    <p class="note" style="margin:0">Imported clients come in as New lead, marked Returning client. Anyone whose phone number is already in the CRM is skipped.</p>
+  </aside>`;
+  document.body.appendChild(ov);
+  const close = () => ov.remove();
+  ov.onclick = e => { if (e.target === ov) close(); };
+  ov.querySelector('#x').onclick = close;
+  ov.querySelector('#tpl').onclick = () => downloadFile('client-import-template.csv', 'Full name,Phone,Email,State,Language\r\n');
+  const prev = ov.querySelector('#iprev'), go = ov.querySelector('#igo');
+  ov.querySelector('#ifile').onchange = async e => {
+    const file = e.target.files[0]; parsed = null; go.disabled = true;
+    if (!file) return;
+    const r = csvToClients(await file.text());
+    if (r.error) { prev.textContent = r.error; prev.className = 'err'; return; }
+    parsed = r.list; prev.className = 'note';
+    prev.textContent = `Ready to import ${r.list.length} clients.` + (r.dupes ? ` ${r.dupes} skipped (phone already in the CRM or repeated).` : '') + (r.skipped ? ` ${r.skipped} skipped (no name).` : '');
+    go.disabled = !r.list.length; go.textContent = 'Import ' + r.list.length + ' clients';
+  };
+  go.onclick = async () => {
+    if (!parsed || !parsed.length) return;
+    go.disabled = true;
+    const agent_id = ov.querySelector('#iag').value;
+    const recs = parsed.map(c => ({ ...c, agent_id, stage: 'new_lead', returning_client: true, bank_product: false, lead_source: 'Returning' }));
+    let done = 0;
+    for (let i = 0; i < recs.length; i += 200) {
+      go.textContent = `Importing… ${done} of ${recs.length}`;
+      const { error } = await sb.from('clients').insert(recs.slice(i, i + 200));
+      if (error) { toast(`Stopped after ${done} clients: ${error.message}`); close(); return loadAll(); }
+      done += Math.min(200, recs.length - i);
+    }
+    toast('Imported ' + done + ' clients'); close(); loadAll();
+  };
 }
 
 // ---------- Agents (admin) ----------
