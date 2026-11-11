@@ -59,6 +59,7 @@ textarea{min-height:70px}
 .login{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px}
 .login .panel{width:min(380px,100%);display:flex;flex-direction:column;gap:14px;padding:24px}
 .err{color:#A11B1B;font-size:13px;min-height:1em;margin:0}
+.linkbtn{background:none;border:0;padding:8px 0;min-height:44px;color:var(--accent);font-weight:600;font-size:13px;cursor:pointer;text-decoration:underline;text-align:left}
 .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:12px 18px;border-radius:10px;font-size:14px;z-index:20}
 </style>
 </head>
@@ -77,7 +78,14 @@ const STAGES = [
 ];
 const stageName = id => (STAGES.find(s => s[0] === id) || [id, id])[1];
 const stageIdx = id => STAGES.findIndex(s => s[0] === id);
+// Where email links (confirm account, reset password) send people back to.
+const APP_URL = location.origin + location.pathname;
+// True when someone arrives from a password-reset email link.
+let recovering = location.hash.includes('type=recovery');
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+sb.auth.onAuthStateChange(event => {
+  if (event === 'PASSWORD_RECOVERY') { recovering = true; renderNewPassword(); }
+});
 const S = { me: null, agents: [], clients: [], tab: 'pipeline', filter: 'all' };
 const $ = s => document.querySelector(s);
 const app = $('#app');
@@ -97,7 +105,13 @@ function renderLogin(msg = '') {
     <label>Email<input name="email" type="email" required autocomplete="username"></label>
     <label>Password<input name="password" type="password" required autocomplete="current-password"></label>
     <button class="btn">Log in</button>
-    <p class="err">${esc(msg)}</p></form></main>`;
+    <p class="err">${esc(msg)}</p>
+    <div class="row" style="justify-content:space-between">
+      <button type="button" class="linkbtn" id="toSignup">New agent? Create your account</button>
+      <button type="button" class="linkbtn" id="toForgot">Forgot password?</button>
+    </div></form></main>`;
+  $('#toSignup').onclick = () => renderSignup();
+  $('#toForgot').onclick = () => renderForgot();
   $('#lf').onsubmit = async e => {
     e.preventDefault();
     const f = new FormData(e.target);
@@ -106,16 +120,86 @@ function renderLogin(msg = '') {
     loadAll();
   };
 }
+
+// ---------- Create account (agents do this themselves) ----------
+function renderSignup(msg = '') {
+  app.innerHTML = `<main class="login"><form id="sf" class="panel">
+    <h1>Create your account</h1>
+    <p class="note" style="margin:0">Use the email you check every day. Theo turns on your access after you sign up.</p>
+    <label>Full name<input name="name" required autocomplete="name"></label>
+    <label>Email<input name="email" type="email" required autocomplete="username"></label>
+    <label>Password (8+ characters)<input name="password" type="password" required minlength="8" autocomplete="new-password"></label>
+    <label>Confirm password<input name="confirm" type="password" required minlength="8" autocomplete="new-password"></label>
+    <button class="btn">Create account</button>
+    <p class="err">${esc(msg)}</p>
+    <button type="button" class="linkbtn" id="toLogin">Back to log in</button></form></main>`;
+  $('#toLogin').onclick = () => renderLogin();
+  $('#sf').onsubmit = async e => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    if (f.get('password') !== f.get('confirm')) return renderSignup('Passwords do not match.');
+    const { data, error } = await sb.auth.signUp({
+      email: f.get('email').trim().toLowerCase(), password: f.get('password'),
+      options: { emailRedirectTo: APP_URL, data: { full_name: f.get('name').trim() } }
+    });
+    if (error) return renderSignup(error.message);
+    if (data.session) return loadAll();
+    renderMessage('Check your email', 'We sent you a confirmation link. Tap it, then come back and log in.');
+  };
+}
+
+// ---------- Forgot password ----------
+function renderForgot(msg = '') {
+  app.innerHTML = `<main class="login"><form id="ff" class="panel">
+    <h1>Reset your password</h1>
+    <label>Email<input name="email" type="email" required autocomplete="username"></label>
+    <button class="btn">Email me a reset link</button>
+    <p class="err">${esc(msg)}</p>
+    <button type="button" class="linkbtn" id="toLogin">Back to log in</button></form></main>`;
+  $('#toLogin').onclick = () => renderLogin();
+  $('#ff').onsubmit = async e => {
+    e.preventDefault();
+    const email = new FormData(e.target).get('email').trim().toLowerCase();
+    const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: APP_URL });
+    if (error) return renderForgot(error.message);
+    renderMessage('Check your email', 'If that email has an account, a reset link is on the way. It can take a few minutes.');
+  };
+}
+
+function renderNewPassword(msg = '') {
+  app.innerHTML = `<main class="login"><form id="pf" class="panel">
+    <h1>Set a new password</h1>
+    <label>New password (8+ characters)<input name="password" type="password" required minlength="8" autocomplete="new-password"></label>
+    <label>Confirm password<input name="confirm" type="password" required minlength="8" autocomplete="new-password"></label>
+    <button class="btn">Save password</button>
+    <p class="err">${esc(msg)}</p></form></main>`;
+  $('#pf').onsubmit = async e => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    if (f.get('password') !== f.get('confirm')) return renderNewPassword('Passwords do not match.');
+    const { error } = await sb.auth.updateUser({ password: f.get('password') });
+    if (error) return renderNewPassword(error.message);
+    recovering = false;
+    toast('Password saved'); loadAll();
+  };
+}
+
+function renderMessage(title, body) {
+  app.innerHTML = `<main class="login"><div class="panel"><h1>${esc(title)}</h1><p style="margin:0">${esc(body)}</p>
+    <button class="btn" id="toLogin">Back to log in</button></div></main>`;
+  $('#toLogin').onclick = () => renderLogin();
+}
 async function logout() { await sb.auth.signOut(); S.me = null; renderLogin(); }
 
 // ---------- Data ----------
 async function loadAll() {
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return renderLogin();
+  if (recovering) return renderNewPassword();
   const { data: me } = await sb.from('agents').select('*').eq('id', user.id).maybeSingle();
   if (!me || !me.active) {
-    app.innerHTML = `<main class="login"><div class="panel"><h1>Not set up yet</h1>
-      <p>This login isn't linked to an active agent yet. Ask Theo to add you.</p>
+    app.innerHTML = `<main class="login"><div class="panel"><h1>Almost in</h1>
+      <p>Your account (${esc(user.email)}) is created, but your access isn't turned on yet. Text Theo this email so he can add you.</p>
       <button class="btn" id="lo">Log out</button></div></main>`;
     $('#lo').onclick = logout; return;
   }
@@ -190,7 +274,7 @@ function renderClients(v) {
 function renderAgents() {
   $('#body').innerHTML = `<div class="panel" style="margin-bottom:16px;display:flex;flex-direction:column;gap:12px">
       <h2 style="font-size:20px">Add an agent</h2>
-      <p class="note" style="margin:0">First create their login in Supabase → Authentication → Users → Add user. Then add them here with the same email.</p>
+      <p class="note" style="margin:0">The agent creates their own account on the login screen first ("New agent? Create your account"). Then add them here with the same email to turn on their access.</p>
       <form id="af" class="grid2"><label>Full name<input name="name" required></label>
         <label>Email<input name="email" type="email" required></label>
         <div style="display:flex;align-items:flex-end"><button class="btn">Add agent</button></div></form>
