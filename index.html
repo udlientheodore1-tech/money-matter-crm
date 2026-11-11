@@ -62,7 +62,7 @@ textarea{min-height:70px}
 .login .panel{width:min(400px,100%);display:flex;flex-direction:column;gap:14px;padding:28px;margin:auto;border-color:rgba(201,162,39,.35);box-shadow:0 24px 60px rgba(0,0,0,.55)}
 .login>.panel,.login>form.panel{align-self:center;justify-self:center}
 .login .side{display:flex;padding:32px 20px}
-.hero{position:relative;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between;gap:24px;padding:48px;min-height:100vh;color:#F2EEE3;
+.hero{position:sticky;top:0;align-self:start;height:100vh;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between;gap:24px;padding:48px;min-height:100vh;color:#F2EEE3;
   background-color:#0E0E0E;
   background-image:linear-gradient(180deg,rgba(14,14,14,.6) 0%,rgba(14,14,14,.12) 28%,rgba(14,14,14,.35) 52%,rgba(14,14,14,.96) 88%),var(--photo,none),
     radial-gradient(900px 600px at 85% 0%,rgba(201,162,39,.22),transparent 65%),
@@ -74,10 +74,11 @@ textarea{min-height:70px}
 .hero h2{font-size:clamp(28px,3.6vw,48px);line-height:1.05;letter-spacing:-.02em;max-width:14ch;text-wrap:balance}
 .hero h2 em{font-style:normal;color:var(--accent)}
 .hero p{margin:12px 0 0;font-size:16px;color:#D9D1BE;max-width:44ch}
+.perks{margin:0;padding-left:18px;font-size:13px;color:var(--muted);line-height:1.6}
 .hero .langs{margin-top:22px;font-size:13px;letter-spacing:.06em;color:#D9D1BE}
 @media (max-width:820px){
   .login{grid-template-columns:1fr;grid-template-rows:auto 1fr}
-  .hero{min-height:56vh;padding:34px 30px 60px;background-position:center top}
+  .hero{position:relative;height:auto;min-height:56vh;padding:34px 30px 60px;background-position:center top}
   .hero h2{font-size:24px;max-width:none}
   .hero p{display:none}
   .hero .langs{margin-top:10px;font-size:12px}
@@ -150,13 +151,59 @@ const TEAM_PHOTO = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgFB
   im.onerror = () => findPhoto(names.slice(1));
   im.src = names[0];
 })(['team.jpg', 'team.jpeg', 'team.png', 'team.JPG', 'team.JPEG', 'team.PNG']);
-const HERO = `<section class="hero" aria-label="Money Matter Tax Services">
+const hero = (head, sub) => `<section class="hero" aria-label="Money Matter Tax Services">
   <div class="mark"><i></i>Money Matter Tax Services</div>
-  <div><h2>One team. One season. <em>Every client counted.</em></h2>
-    <p>Your leads, your follow-ups and your numbers, all in one place.</p>
+  <div><h2>${head}</h2>
+    <p>${sub}</p>
     <div class="langs">Nou Pale Kreyòl · Hablamos Español · We Speak English</div></div>
 </section>`;
+const HERO = hero('One team. One season. <em>Every client counted.</em>', 'Your leads, your follow-ups and your numbers, all in one place.');
 const authPage = inner => `<main class="login">${HERO}<div class="side">${inner}</div></main>`;
+
+// ---------- VIP sign-up page (public, no login) ----------
+const vipLink = code => APP_URL + '?vip=' + encodeURIComponent(code || 'team');
+async function renderVip(code, msg = '', keep = {}) {
+  let pro = '';
+  if (code && code !== 'team') { try { const r = await sb.rpc('vip_agent_name', { p_code: code }); pro = r.data || ''; } catch (e) {} }
+  document.title = 'Money Matter VIP List';
+  app.innerHTML = `<main class="login">${hero('Get on the <em>VIP list.</em>', 'Be first in line when tax season opens.')}<div class="side"><form id="vf" class="panel">
+    <h1>Join the <em>VIP list</em></h1>
+    <ul class="perks"><li>First in line when filing opens</li><li>Your own tax pro who texts you directly</li><li>Refund advance appointments start January 2 (subject to approval)</li></ul>
+    ${pro ? `<p class="note" style="margin:0">Your tax pro: <b style="color:var(--ink)">${esc(pro)}</b></p>` : ''}
+    <label>Full name<input name="name" required maxlength="80" autocomplete="name" value="${esc(keep.name)}"></label>
+    <label>Cell phone<input name="phone" type="tel" required autocomplete="tel" inputmode="tel" value="${esc(keep.phone)}"></label>
+    <label>Email (optional)<input name="email" type="email" autocomplete="email" value="${esc(keep.email)}"></label>
+    <label>Language you prefer<select name="language"><option>English</option><option>Kreyòl</option><option>Español</option></select></label>
+    <label>Have you filed with us before?<select name="returning"><option value="no">No, I'm new</option><option value="yes">Yes</option></select></label>
+    <input name="website" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;height:1px;width:1px;min-height:0;padding:0;border:0">
+    <label class="check" style="align-items:flex-start;font-size:13px"><input type="checkbox" name="consent" required style="flex:none;margin-top:2px"> <span>I agree to be contacted by Money Matter Tax Services by call or text about tax services. Message and data rates may apply. Reply STOP to opt out.</span></label>
+    <button class="btn" id="vgo">Put me on the list</button>
+    <p class="err">${esc(msg)}</p>
+    <p class="note" style="margin:0">We will never ask for your Social Security number on this form.</p></form></div></main>`;
+  $('#vf').onsubmit = async e => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    const keepNow = { name: f.get('name'), phone: f.get('phone'), email: f.get('email') };
+    if (String(f.get('phone')).replace(/\D/g, '').length < 10) return renderVip(code, 'Please enter your full phone number with area code.', keepNow);
+    $('#vgo').disabled = true; $('#vgo').textContent = 'Sending…';
+    if (!f.get('website')) {
+      const { error } = await sb.rpc('submit_vip_lead', { p_name: f.get('name').trim(), p_phone: f.get('phone').trim(), p_email: (f.get('email') || '').trim(),
+        p_language: f.get('language'), p_returning: f.get('returning') === 'yes', p_code: code || '' });
+      if (error) return renderVip(code, /function|schema cache|permission/i.test(error.message) ? 'Sign-ups are not open yet. Please try again soon.' : error.message, keepNow);
+    }
+    app.innerHTML = `<main class="login">${hero('You\'re on the <em>VIP list.</em>', 'Your tax pro will text you soon.')}<div class="side"><div class="panel">
+      <h1>You're <em>in!</em></h1>
+      <p style="margin:0">${pro ? esc(pro) + ' will text you soon.' : 'Your tax pro will text you soon.'} Refund advance appointments start January 2 (subject to approval).</p>
+      <p style="margin:0"><b>Know someone who needs their taxes done?</b> Send them this link. You get $50 for every person you refer who files with us.</p>
+      <button class="btn" id="vshare">Copy the link to share</button></div></div></main>`;
+    $('#vshare').onclick = () => copyText(vipLink(code), 'Link copied. Paste it in a text to a friend.');
+  };
+}
+function copyText(text, okMsg) {
+  const done = () => toast(okMsg || 'Copied');
+  const manual = () => { const t = document.createElement('textarea'); t.value = text; document.body.appendChild(t); t.select(); try { document.execCommand('copy'); done(); } catch (e) { toast(text); } t.remove(); };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, manual); else manual();
+}
 
 // ---------- Login ----------
 function renderLogin(msg = '') {
@@ -286,6 +333,7 @@ function render() {
       <div class="row">
         <nav class="row" aria-label="Sections">${tabs.map(t => `<button class="tab ${S.tab === t[0] ? 'on' : ''}" data-tab="${t[0]}">${t[1]}</button>`).join('')}</nav>
         <button class="btn" id="add">+ New client</button>
+        <button class="btn ghost" id="vip">My VIP link</button>
         <button class="btn ghost" id="lo">Log out</button>
       </div>
     </header>
@@ -303,6 +351,7 @@ function render() {
     <section id="body"></section></div>`;
   app.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { S.tab = b.dataset.tab; render(); });
   $('#add').onclick = () => openClient(null);
+  $('#vip').onclick = openVipLink;
   $('#lo').onclick = logout;
   if ($('#flt')) $('#flt').onchange = e => { S.filter = e.target.value; render(); };
   if ($('#q')) $('#q').oninput = e => { S.q = e.target.value; renderBody(); };
@@ -337,6 +386,30 @@ function renderBday(v) {
       <small>${when[c.birth_month + '-' + c.birth_day] === 0 ? '<b style="color:var(--accent)">Today</b>' : MONTHS[c.birth_month - 1] + ' ' + c.birth_day}${isAdmin() ? ' · ' + esc(agentName(c.agent_id)) : ''}</small>
       ${telOf(c) ? `<a class="btn small" href="${esc(smsHref(c, bdayMsg(c)))}">Text happy birthday</a>` : ''}</div>`).join('')}</div>` : '';
   $('#bday').querySelectorAll('[data-id]').forEach(b => b.onclick = () => openClient(b.dataset.id));
+}
+
+// ---------- My VIP link ----------
+function openVipLink() {
+  if (!S.me.vip_code) return toast('VIP links are not set up yet. Ask Theo to run the database step.');
+  const mine = vipLink(S.me.vip_code);
+  const ov = document.createElement('div');
+  ov.className = 'overlay';
+  ov.innerHTML = `<aside class="drawer" role="dialog" aria-label="My VIP link">
+    <div class="row" style="justify-content:space-between"><h2>My VIP link</h2><button class="btn ghost small" id="x">Close</button></div>
+    <p style="margin:0">Post this link, text it, or put it in your bio. Everyone who signs up through it lands in your CRM as a New lead under your name, and shows up in Follow up today.</p>
+    <label>Your personal link<input readonly value="${esc(mine)}" onclick="this.select()"></label>
+    <div class="row"><button class="btn" id="cp">Copy my link</button><a class="btn ghost" href="${esc(mine)}" target="_blank" rel="noopener">Open it</a></div>
+    ${isAdmin() ? `<label>Company link (no agent, leads come to you)<input readonly value="${esc(vipLink('team'))}" onclick="this.select()"></label>
+    <div class="row"><button class="btn ghost" id="cpt">Copy company link</button></div>
+    <p class="note" style="margin:0">Use the company link on ads, flyers and signs. Leads from it land under your name so you can hand them out.</p>` : ''}
+    <div class="warnbox">The sign-up page only asks for name, phone, email and language. Never SSNs or documents.</div>
+  </aside>`;
+  document.body.appendChild(ov);
+  const close = () => ov.remove();
+  ov.onclick = e => { if (e.target === ov) close(); };
+  ov.querySelector('#x').onclick = close;
+  ov.querySelector('#cp').onclick = () => copyText(mine, 'Your VIP link is copied');
+  if (ov.querySelector('#cpt')) ov.querySelector('#cpt').onclick = () => copyText(vipLink('team'), 'Company link copied');
 }
 
 // ---------- Follow up today ----------
@@ -677,7 +750,9 @@ async function openClient(id) {
 if (SUPABASE_URL.startsWith('PASTE')) {
   app.innerHTML = '<main class="login"><div class="panel"><h1>Almost there</h1><p>Paste your Supabase URL and publishable key at the top of this file.</p></div></main>';
 } else {
-  sb.auth.getSession().then(({ data: { session } }) => session ? loadAll() : renderLogin());
+  const vipCode = new URLSearchParams(location.search).get('vip');
+  if (vipCode !== null) renderVip(vipCode.trim().toLowerCase());
+  else sb.auth.getSession().then(({ data: { session } }) => session ? loadAll() : renderLogin());
 }
 </script>
 </body>
