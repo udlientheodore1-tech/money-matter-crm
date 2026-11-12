@@ -367,7 +367,7 @@ function render() {
       <div class="row">
         <nav class="row" aria-label="Sections">${tabs.map(t => `<button class="tab ${S.tab === t[0] ? 'on' : ''}" data-tab="${t[0]}">${t[1]}</button>`).join('')}</nav>
         <button class="btn" id="add">+ New client</button>
-        <button class="btn ghost" id="vip">My VIP link</button>
+        <button class="btn ghost" id="vip">My links</button>
         <button class="btn ghost" id="lo">Log out</button>
       </div>
     </header>
@@ -438,12 +438,31 @@ function openVipLink() {
     <div class="row"><button class="btn ghost" id="cpt">Copy company link</button></div>
     <p class="note" style="margin:0">Use the company link on ads, flyers and signs. Leads from it land under your name so you can hand them out.</p>` : ''}
     <div class="warnbox">The sign-up page only asks for name, phone, email and language. Never SSNs or documents.</div>
+    <form id="mylinks" style="display:flex;flex-direction:column;gap:10px;border-top:1px solid var(--line);padding-top:14px">
+      <h3 style="font-size:16px">My documents and booking links</h3>
+      <p class="note" style="margin:0">Leave a box empty to use the company link Theo set.</p>
+      <label>My documents link (where clients send their tax documents)<input name="intake" type="url" placeholder="${esc(S.intake) || 'https://...'}" value="${esc(S.me.intake_url)}"></label>
+      <label>My booking link (where clients pick an appointment time)<input name="booking" type="url" placeholder="${esc(S.booking) || 'https://...'}" value="${esc(S.me.booking_url)}"></label>
+      <div class="row"><button class="btn small">Save my links</button><span class="note" id="mlnote"></span></div>
+    </form>
   </aside>`;
   document.body.appendChild(ov);
   const close = () => ov.remove();
   ov.onclick = e => { if (e.target === ov) close(); };
   ov.querySelector('#x').onclick = close;
   ov.querySelector('#cp').onclick = () => copyText(mine, 'Your VIP link is copied');
+  ov.querySelector('#mylinks').onsubmit = async e => {
+    e.preventDefault();
+    const f = new FormData(e.target), note = ov.querySelector('#mlnote');
+    const i = (f.get('intake') || '').trim(), k = (f.get('booking') || '').trim();
+    if ((i && !/^https:\/\//i.test(i)) || (k && !/^https:\/\//i.test(k))) { note.textContent = 'Links must start with https://'; return; }
+    note.textContent = 'Saving…';
+    const { error } = await sb.rpc('set_my_links', { p_intake: i, p_booking: k });
+    if (error) { note.textContent = /function|schema cache/i.test(error.message) ? 'Not set up yet. Ask Theo to run the database step.' : error.message; return; }
+    S.me.intake_url = i || null; S.me.booking_url = k || null;
+    const a = S.agents.find(x => x.id === S.me.id); if (a) { a.intake_url = S.me.intake_url; a.booking_url = S.me.booking_url; }
+    note.textContent = ''; toast('Your links are saved'); close();
+  };
   if (ov.querySelector('#cpt')) ov.querySelector('#cpt').onclick = () => copyText(vipLink('team'), 'Company link copied');
 }
 
