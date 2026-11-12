@@ -90,6 +90,12 @@ textarea{min-height:70px}
 .err{color:var(--warn);font-size:13px;min-height:1em;margin:0}
 .linkbtn{background:none;border:0;padding:8px 0;min-height:44px;color:var(--accent);font-weight:600;font-size:13px;cursor:pointer;text-decoration:underline;text-align:left}
 .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--accent);color:var(--on-accent);font-weight:600;padding:12px 18px;border-radius:10px;font-size:14px;z-index:20}
+.tab-board>.kpis,.tab-board>.row{display:none}
+.goal{display:flex;flex-direction:column;gap:6px;font-size:14px}
+.track{height:12px;border-radius:999px;background:var(--ground);border:1px solid var(--line);overflow:hidden}
+.track i{display:block;height:100%;background:var(--accent)}
+tr.me td{background:var(--accent-soft)}
+.docs{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px}
 .duerow{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;padding:8px 0;border-top:1px solid var(--line)}
 .duerow small{color:var(--muted);flex:1;min-width:160px;font-size:13px}
 .linkname{background:none;border:0;padding:0;min-height:44px;color:var(--ink);font-weight:700;cursor:pointer;text-align:left}
@@ -120,7 +126,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 sb.auth.onAuthStateChange(event => {
   if (event === 'PASSWORD_RECOVERY') { recovering = true; renderNewPassword(); }
 });
-const S = { me: null, agents: [], clients: [], tab: 'pipeline', filter: 'all', q: '', sent: new Set() };
+const S = { me: null, agents: [], clients: [], tab: 'pipeline', filter: 'all', q: '', sent: new Set(), board: null, intake: '' };
 const $ = s => document.querySelector(s);
 const app = $('#app');
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -135,7 +141,25 @@ const telOf = c => String(c.phone || '').replace(/[^\d+]/g, '');
 const firstName = c => String(c.full_name || '').trim().split(/\s+/)[0] || 'there';
 const smsHref = (c, msg) => 'sms:' + telOf(c) + '?&body=' + encodeURIComponent(msg);
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const intakeFor = c => ((S.agents.find(a => a.id === c.agent_id) || {}).intake_url || S.intake || '').trim();
+const docsMsg = (c, url) => {
+  const missing = DOCS.filter(d => !docsOf(c)[d[0]]).map(d => d[1].replace(/ \(.*\)$/, ''));
+  const me = S.me.full_name;
+  if (c.language === 'Kreyòl') return `Bonjou ${firstName(c)}, se ${me} nan Money Matter Tax Services. Sèvi ak lyen sekirite sa a pou voye dokiman taks ou yo: ${url}`
+    + (missing.length ? ` Nou poko gen: ${missing.join(', ')}.` : '') + ' Pa voye foto yo pa tèks.';
+  if (c.language === 'Español') return `Hola ${firstName(c)}, soy ${me} de Money Matter Tax Services. Usa este enlace seguro para enviar tus documentos de impuestos: ${url}`
+    + (missing.length ? ` Todavía necesitamos: ${missing.join(', ')}.` : '') + ' Por favor no envíes fotos por mensaje de texto.';
+  return `Hi ${firstName(c)}, this is ${me} with Money Matter Tax Services. Use this secure link to send your tax documents: ${url}`
+    + (missing.length ? ` We still need: ${missing.join(', ')}.` : '') + ' Please do not text photos of your ID or Social Security card.';
+};
 const bdayMsg = c => (c.language === 'Kreyòl' ? `Bòn fèt, ${firstName(c)}!` : c.language === 'Español' ? `¡Feliz cumpleaños, ${firstName(c)}!` : `Happy birthday, ${firstName(c)}! Hope it's a great one.`) + ' - Money Matter Tax Services';
+const DOCS = [['id', 'Photo ID'], ['ssn_card', 'Social Security cards'], ['income', 'Income forms (W-2 / 1099)'], ['dependents', "Dependents' info (if any)"], ['bank', 'Bank account for deposit'], ['prior', "Last year's return (new clients)"]];
+const docsOf = c => (c && c.docs && typeof c.docs === 'object') ? c.docs : {};
+const docsIn = c => DOCS.filter(d => docsOf(c)[d[0]]).length;
+const GOALS = { clients: 1000, bank: 600, gross: 500000 };
+const pct = (n, goal) => Math.max(0, Math.min(100, Math.round(n / goal * 100)));
+const bar = (label, n, goal, fmt) => `<div class="goal"><div class="row" style="justify-content:space-between"><span>${label}</span><b>${fmt ? fmt(n) : n} of ${fmt ? fmt(goal) : goal.toLocaleString('en-US')}</b></div>
+  <div class="track" role="img" aria-label="${label}: ${pct(n, goal)} percent of goal"><i style="width:${pct(n, goal)}%"></i></div></div>`;
 const phoneBtns = c => telOf(c) ? `<span class="row"><a class="btn small" href="tel:${esc(telOf(c))}">Call</a><a class="btn ghost small" href="sms:${esc(telOf(c))}">Text</a></span>` : '';
 const followClass = c => (c.next_follow_up && c.next_follow_up <= today() && !isDone(c)) ? 'due' : '';
 function toast(msg) { const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), 3200); }
@@ -318,6 +342,8 @@ async function loadAll() {
   if (c.error) toast(c.error.message);
   S.agents = a.data || [me];
   S.clients = c.data || [];
+  try { const b = await sb.rpc('team_scoreboard'); S.board = b.error ? null : (b.data || []); } catch (e) { S.board = null; }
+  try { const u = await sb.rpc('company_intake_url'); S.intake = u.error ? '' : (u.data || ''); } catch (e) { S.intake = ''; }
   render();
 }
 const visible = () => S.filter === 'all' ? S.clients : S.clients.filter(c => c.agent_id === S.filter);
@@ -326,8 +352,8 @@ const visible = () => S.filter === 'all' ? S.clients : S.clients.filter(c => c.a
 function render() {
   const v = visible();
   const booked = v.filter(isDone).reduce((t, c) => t + Number(c.fee || 0), 0);
-  const tabs = [['pipeline','Pipeline'],['clients','Clients']].concat(isAdmin() ? [['agents','Agents']] : []);
-  app.innerHTML = `<div class="wrap">
+  const tabs = [['pipeline','Pipeline'],['clients','Clients'],['board','Scoreboard']].concat(isAdmin() ? [['agents','Agents']] : []);
+  app.innerHTML = `<div class="wrap tab-${S.tab}">
     <header class="top">
       <div><h1>Money Matter <em>CRM</em></h1><div class="who">${esc(S.me.full_name)} · ${isAdmin() ? 'Admin' : 'Agent'}</div></div>
       <div class="row">
@@ -343,9 +369,10 @@ function render() {
       <div class="panel kpi"><span>Active (not filed)</span><b>${v.filter(c => !isDone(c)).length}</b></div>
       <div class="panel kpi"><span>Filed</span><b>${v.filter(isDone).length}</b></div>
       <div class="panel kpi"><span>Funded</span><b>${v.filter(c => c.stage === 'funded').length}</b></div>
+      <div class="panel kpi"><span>Bank products (filed)</span><b>${v.filter(c => c.bank_product && isDone(c)).length}</b></div>
       <div class="panel kpi"><span>Fees booked</span><b style="color:var(--accent)">${money(booked)}</b></div>
     </section>
-    ${S.tab !== 'agents' ? `<div class="row" style="margin-bottom:12px"><input id="q" type="search" placeholder="Search name, phone or email" aria-label="Search clients" value="${esc(S.q)}" style="flex:1;min-width:220px"></div>` : ''}
+    ${(S.tab === 'pipeline' || S.tab === 'clients') ? `<div class="row" style="margin-bottom:12px"><input id="q" type="search" placeholder="Search name, phone or email" aria-label="Search clients" value="${esc(S.q)}" style="flex:1;min-width:220px"></div>` : ''}
     <section id="bday"></section>
     <section id="due"></section>
     <section id="body"></section></div>`;
@@ -367,7 +394,7 @@ function shown() {
 }
 
 function renderBody() {
-  if (S.tab === 'agents') { $('#due').innerHTML = ''; $('#bday').innerHTML = ''; return renderAgents(); }
+  if (S.tab === 'agents' || S.tab === 'board') { $('#due').innerHTML = ''; $('#bday').innerHTML = ''; return S.tab === 'agents' ? renderAgents() : renderBoard(); }
   const v = shown();
   renderBday(v);
   renderDue(v);
@@ -432,6 +459,7 @@ function renderPipeline(v) {
       ${cards.map(c => `<button class="card" data-id="${c.id}"><b>${esc(c.full_name)}</b>
         <small>${esc(c.return_type || 'Return type not set')} · ${money(c.fee)}${c.language ? ' · ' + esc(c.language) : ''}</small>
         ${isAdmin() ? `<small>Agent: ${esc(agentName(c.agent_id))}</small>` : ''}
+        <small>Docs: ${docsIn(c)} of ${DOCS.length}</small>
         <small class="${followClass(c)}">Follow up: ${esc(c.next_follow_up || '—')}</small></button>`).join('')}
     </div>`;
   }).join('')}</div></div>`;
@@ -597,6 +625,38 @@ function openImport() {
   };
 }
 
+// ---------- Scoreboard ----------
+function renderBoard() {
+  const mine = S.clients.filter(c => c.agent_id === S.me.id);
+  const myFees = mine.filter(isDone).reduce((t, c) => t + Number(c.fee || 0), 0);
+  const split = S.me.split_pct == null ? null : Number(S.me.split_pct);
+  const rows = S.board || [];
+  const teamFiled = rows.reduce((t, r) => t + Number(r.filed || 0), 0), teamBank = rows.reduce((t, r) => t + Number(r.bank_products || 0), 0);
+  const gross = S.clients.filter(isDone).reduce((t, c) => t + Number(c.fee || 0), 0);
+  $('#body').innerHTML = `<div class="panel" style="margin-bottom:16px;display:flex;flex-direction:column;gap:12px">
+      <h2 style="font-size:20px">Your numbers</h2>
+      <section class="kpis" style="margin:0">
+        <div class="panel kpi"><span>Your clients</span><b>${mine.length}</b></div>
+        <div class="panel kpi"><span>Filed</span><b>${mine.filter(isDone).length}</b></div>
+        <div class="panel kpi"><span>Bank products (filed)</span><b>${mine.filter(c => c.bank_product && isDone(c)).length}</b></div>
+        <div class="panel kpi"><span>Fees booked</span><b>${money(myFees)}</b></div>
+        <div class="panel kpi"><span>Your estimated earnings${split == null ? '' : ' (' + split + '% split)'}</span><b style="color:var(--accent)">${split == null ? '—' : money(Math.round(myFees * split / 100))}</b></div>
+      </section>
+      <p class="note" style="margin:0">${split == null ? 'Your split has not been set yet. Ask Theo to add it.' : 'Estimate only: fees on filed and funded clients times your split. Your actual pay comes from Theo.'}</p>
+    </div>
+    ${S.board ? `<div class="panel" style="margin-bottom:16px;display:flex;flex-direction:column;gap:14px">
+      <h2 style="font-size:20px">Team goals</h2>
+      ${bar('Clients filed', teamFiled, GOALS.clients)}
+      ${bar('Bank products', teamBank, GOALS.bank)}
+      ${isAdmin() ? bar('Fees booked (only you see this)', gross, GOALS.gross, money) : ''}
+    </div>
+    <div class="panel scroll" style="padding:0"><table style="min-width:520px"><thead><tr><th>#</th><th>Agent</th><th>Leads</th><th>Filed</th><th>Bank products</th></tr></thead>
+      <tbody>${rows.map((r, k) => `<tr class="${r.agent_id === S.me.id ? 'me' : ''}"><td>${k + 1}</td><td><b>${esc(r.full_name)}</b>${r.agent_id === S.me.id ? ' (you)' : ''}</td>
+        <td>${r.leads}</td><td>${r.filed}</td><td>${r.bank_products}</td></tr>`).join('') || '<tr><td colspan="5">No agents yet.</td></tr>'}</tbody></table></div>
+    <p class="note">Ranked by clients filed. Everyone sees counts only. Nobody sees another agent's clients or fees.</p>`
+    : '<div class="panel"><p style="margin:0">The team scoreboard is not set up yet. Ask Theo to run the database step.</p></div>'}`;
+}
+
 // ---------- Agents (admin) ----------
 function renderAgents() {
   $('#body').innerHTML = `<div class="panel" style="margin-bottom:16px;display:flex;flex-direction:column;gap:12px">
@@ -606,7 +666,7 @@ function renderAgents() {
         <label>Email<input name="email" type="email" required></label>
         <div style="display:flex;align-items:flex-end"><button class="btn">Add agent</button></div></form>
     </div>
-    <div class="panel scroll" style="padding:0"><table><thead><tr><th>Agent</th><th>Clients</th><th>Filed</th><th>Funded</th><th>Fees booked</th>
+    <div class="panel scroll" style="padding:0"><table><thead><tr><th>Agent</th><th>Clients</th><th>Filed</th><th>Funded</th><th>Fees booked</th><th>Split %</th><th>Est. payout</th><th>Documents link</th>
       <th>Cognito access</th><th>File w/o review</th><th>Active</th></tr></thead><tbody>
       ${S.agents.map(a => {
         const mine = S.clients.filter(c => c.agent_id === a.id);
@@ -614,8 +674,12 @@ function renderAgents() {
         return `<tr><td><b>${esc(a.full_name)}</b><br><span class="note">${esc(a.email)}${a.role === 'admin' ? ' · Admin' : ''}</span></td>
           <td>${mine.length}</td><td>${mine.filter(isDone).length}</td><td>${mine.filter(c => c.stage === 'funded').length}</td>
           <td>${money(mine.filter(isDone).reduce((t, c) => t + Number(c.fee || 0), 0))}</td>
+          <td><input type="number" min="0" max="100" step="1" inputmode="numeric" aria-label="Split percent for ${esc(a.full_name)}" data-split="${a.id}" value="${a.split_pct == null ? '' : esc(a.split_pct)}" style="width:84px"></td>
+          <td>${a.split_pct == null ? '—' : money(Math.round(mine.filter(isDone).reduce((t, c) => t + Number(c.fee || 0), 0) * Number(a.split_pct) / 100))}</td>
+          <td><input type="url" aria-label="Documents link for ${esc(a.full_name)}" data-intake="${a.id}" value="${esc(a.intake_url)}" placeholder="${a.role === 'admin' ? 'Company link (used by everyone)' : 'Leave blank to use the company link'}" style="min-width:220px"></td>
           ${['cognito_access','can_file_without_review','active'].map(f => `<td><input type="checkbox" aria-label="${f} for ${esc(a.full_name)}" data-a="${a.id}" data-f="${f}" ${a[f] ? 'checked' : ''} ${self ? 'disabled' : ''}></td>`).join('')}</tr>`;
       }).join('')}</tbody></table></div>`;
+  $('#body').insertAdjacentHTML('beforeend', '<p class="note">Documents link: paste the Cognito form link clients use to send their documents. Your own row is the company link, used by every agent who has no link of their own.</p>');
   $('#af').onsubmit = async e => {
     e.preventDefault();
     const f = new FormData(e.target);
@@ -623,6 +687,22 @@ function renderAgents() {
     if (error) return toast(error.message);
     toast(data); loadAll();
   };
+  $('#body').querySelectorAll('[data-intake]').forEach(inp => inp.onchange = async () => {
+    const val = inp.value.trim() || null;
+    if (val && !/^https:\/\//i.test(val)) return toast('The link must start with https://');
+    const { error } = await sb.from('agents').update({ intake_url: val }).eq('id', inp.dataset.intake);
+    if (error) return toast(/intake_url/.test(error.message) ? 'Run the database step first, then set documents links.' : error.message);
+    const a = S.agents.find(x => x.id === inp.dataset.intake); a.intake_url = val;
+    if (a.id === S.me.id) { S.me.intake_url = val; if (a.role === 'admin') S.intake = val || ''; }
+    toast('Documents link saved');
+  });
+  $('#body').querySelectorAll('[data-split]').forEach(inp => inp.onchange = async () => {
+    const val = inp.value === '' ? null : Math.max(0, Math.min(100, Number(inp.value)));
+    const { error } = await sb.from('agents').update({ split_pct: val }).eq('id', inp.dataset.split);
+    if (error) return toast(/split_pct/.test(error.message) ? 'Run the database step first, then set splits.' : error.message);
+    const a = S.agents.find(x => x.id === inp.dataset.split); a.split_pct = val; if (a.id === S.me.id) S.me.split_pct = val;
+    toast('Split saved'); renderAgents();
+  });
   $('#body').querySelectorAll('[data-f]').forEach(cb => cb.onchange = async () => {
     const { error } = await sb.from('agents').update({ [cb.dataset.f]: cb.checked }).eq('id', cb.dataset.a);
     if (error) { toast(error.message); cb.checked = !cb.checked; return; }
@@ -675,6 +755,13 @@ async function openClient(id) {
         ${id && isAdmin() ? '<button type="button" class="btn ghost danger" id="del">Delete client</button>' : ''}</div>
     </form>
     <div class="warnbox">Never put SSNs, IDs, bank numbers or tax documents here. Those go in Cognito and the tax software.</div>
+    ${id ? `<div class="panel" style="display:flex;flex-direction:column;gap:10px"><div class="row" style="justify-content:space-between"><h3 style="font-size:16px">Documents received</h3><b id="dcount">${docsIn(c)} of ${DOCS.length}</b></div>
+      <div class="docs">${DOCS.map(d => `<label class="check"><input type="checkbox" data-doc="${d[0]}" ${docsOf(c)[d[0]] ? 'checked' : ''}> ${esc(d[1])}</label>`).join('')}</div>
+      <p class="note" style="margin:0">Check off what you have received. This is only a checklist. The documents themselves stay in Cognito and the tax software.</p>
+      ${intakeFor(c) ? `<div class="row">${telOf(c) ? '<a class="btn small" id="dsend" href="#">Send documents link</a>' : ''}
+        <button type="button" class="btn ghost small" id="dcopy">Copy documents link</button></div>`
+        : '<p class="note" style="margin:0">No documents link set yet. Ask Theo to add one on the Agents tab.</p>'}
+      ${telOf(c) ? '<a class="btn ghost small" id="dmiss" href="#" style="align-self:flex-start">Text the missing list only</a>' : ''}</div>` : ''}
     ${id && canCognito ? `<div class="panel" style="display:flex;flex-direction:column;gap:10px"><h3 style="font-size:16px">Cognito entry</h3>
       ${cognito && cognito.entry_url ? `<a href="${esc(cognito.entry_url)}" target="_blank" rel="noopener" class="btn" style="text-align:center;text-decoration:none">View in Cognito</a>` : '<p class="note" style="margin:0">No Cognito entry linked yet.</p>'}
       ${isAdmin() ? `<form id="cgf" class="row"><input name="url" type="url" placeholder="Paste Cognito entry link" style="flex:1" value="${esc(cognito && cognito.entry_url)}"><button class="btn small">Save link</button></form>` : ''}
@@ -714,6 +801,29 @@ async function openClient(id) {
     toast('Moved to ' + stageName(STAGES[i + d][0])); close(); loadAll();
   };
   if (id) { ov.querySelector('#next').onclick = () => move(1); ov.querySelector('#back').onclick = () => move(-1); }
+
+  ov.querySelectorAll('[data-doc]').forEach(cb => cb.onchange = async () => {
+    const docs = { ...docsOf(c), [cb.dataset.doc]: cb.checked };
+    const { error } = await sb.from('clients').update({ docs }).eq('id', id);
+    if (error) { cb.checked = !cb.checked; return toast(/docs/.test(error.message) ? 'Run the database step first, then use the checklist.' : error.message); }
+    c.docs = docs; ov.querySelector('#dcount').textContent = docsIn(c) + ' of ' + DOCS.length;
+    renderBody();
+  });
+  const dsend = ov.querySelector('#dsend');
+  if (dsend) dsend.onclick = () => {
+    const url = intakeFor(c);
+    dsend.href = smsHref(c, docsMsg(c, url));
+    try { sb.from('activities').insert({ client_id: id, agent_id: S.me.id, kind: 'text', body: 'Sent documents link' }).then(() => {}, () => {}); } catch (e) {}
+  };
+  const dcopy = ov.querySelector('#dcopy');
+  if (dcopy) dcopy.onclick = () => copyText(intakeFor(c), 'Documents link copied');
+
+  const dmiss = ov.querySelector('#dmiss');
+  if (dmiss) dmiss.onclick = e => {
+    const missing = DOCS.filter(d => !docsOf(c)[d[0]]).map(d => d[1].replace(/ \(.*\)$/, ''));
+    if (!missing.length) { e.preventDefault(); return toast('Nothing is missing for this client.'); }
+    dmiss.href = smsHref(c, `Hi ${firstName(c)}, to finish your taxes I still need: ${missing.join(', ')}. Please send them through the secure link I gave you. Thank you!`);
+  };
 
   const del = ov.querySelector('#del');
   if (del) del.onclick = async () => {
