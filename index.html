@@ -126,7 +126,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 sb.auth.onAuthStateChange(event => {
   if (event === 'PASSWORD_RECOVERY') { recovering = true; renderNewPassword(); }
 });
-const S = { me: null, agents: [], clients: [], tab: 'pipeline', filter: 'all', q: '', sent: new Set(), board: null, intake: '' };
+const S = { me: null, agents: [], clients: [], tab: 'pipeline', filter: 'all', q: '', sent: new Set(), board: null, intake: '', booking: '' };
 const $ = s => document.querySelector(s);
 const app = $('#app');
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -141,6 +141,13 @@ const telOf = c => String(c.phone || '').replace(/[^\d+]/g, '');
 const firstName = c => String(c.full_name || '').trim().split(/\s+/)[0] || 'there';
 const smsHref = (c, msg) => 'sms:' + telOf(c) + '?&body=' + encodeURIComponent(msg);
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const bookingFor = c => ((S.agents.find(a => a.id === c.agent_id) || {}).booking_url || S.booking || '').trim();
+const bookMsg = (c, url) => {
+  const me = S.me.full_name;
+  if (c.language === 'Kreyòl') return `Bonjou ${firstName(c)}, se ${me} nan Money Matter Tax Services. Pran yon randevou avè m isit la: ${url}`;
+  if (c.language === 'Español') return `Hola ${firstName(c)}, soy ${me} de Money Matter Tax Services. Reserva tu cita conmigo aquí: ${url}`;
+  return `Hi ${firstName(c)}, this is ${me} with Money Matter Tax Services. Book your appointment with me here: ${url}`;
+};
 const intakeFor = c => ((S.agents.find(a => a.id === c.agent_id) || {}).intake_url || S.intake || '').trim();
 const docsMsg = (c, url) => {
   const missing = DOCS.filter(d => !docsOf(c)[d[0]]).map(d => d[1].replace(/ \(.*\)$/, ''));
@@ -344,6 +351,7 @@ async function loadAll() {
   S.clients = c.data || [];
   try { const b = await sb.rpc('team_scoreboard'); S.board = b.error ? null : (b.data || []); } catch (e) { S.board = null; }
   try { const u = await sb.rpc('company_intake_url'); S.intake = u.error ? '' : (u.data || ''); } catch (e) { S.intake = ''; }
+  try { const k = await sb.rpc('company_booking_url'); S.booking = k.error ? '' : (k.data || ''); } catch (e) { S.booking = ''; }
   render();
 }
 const visible = () => S.filter === 'all' ? S.clients : S.clients.filter(c => c.agent_id === S.filter);
@@ -666,7 +674,7 @@ function renderAgents() {
         <label>Email<input name="email" type="email" required></label>
         <div style="display:flex;align-items:flex-end"><button class="btn">Add agent</button></div></form>
     </div>
-    <div class="panel scroll" style="padding:0"><table><thead><tr><th>Agent</th><th>Clients</th><th>Filed</th><th>Funded</th><th>Fees booked</th><th>Split %</th><th>Est. payout</th><th>Documents link</th>
+    <div class="panel scroll" style="padding:0"><table><thead><tr><th>Agent</th><th>Clients</th><th>Filed</th><th>Funded</th><th>Fees booked</th><th>Split %</th><th>Est. payout</th><th>Documents link</th><th>Booking link</th>
       <th>Cognito access</th><th>File w/o review</th><th>Active</th></tr></thead><tbody>
       ${S.agents.map(a => {
         const mine = S.clients.filter(c => c.agent_id === a.id);
@@ -677,9 +685,10 @@ function renderAgents() {
           <td><input type="number" min="0" max="100" step="1" inputmode="numeric" aria-label="Split percent for ${esc(a.full_name)}" data-split="${a.id}" value="${a.split_pct == null ? '' : esc(a.split_pct)}" style="width:84px"></td>
           <td>${a.split_pct == null ? '—' : money(Math.round(mine.filter(isDone).reduce((t, c) => t + Number(c.fee || 0), 0) * Number(a.split_pct) / 100))}</td>
           <td><input type="url" aria-label="Documents link for ${esc(a.full_name)}" data-intake="${a.id}" value="${esc(a.intake_url)}" placeholder="${a.role === 'admin' ? 'Company link (used by everyone)' : 'Leave blank to use the company link'}" style="min-width:220px"></td>
+          <td><input type="url" aria-label="Booking link for ${esc(a.full_name)}" data-book="${a.id}" value="${esc(a.booking_url)}" placeholder="${a.role === 'admin' ? 'Company link (used by everyone)' : 'Leave blank to use the company link'}" style="min-width:220px"></td>
           ${['cognito_access','can_file_without_review','active'].map(f => `<td><input type="checkbox" aria-label="${f} for ${esc(a.full_name)}" data-a="${a.id}" data-f="${f}" ${a[f] ? 'checked' : ''} ${self ? 'disabled' : ''}></td>`).join('')}</tr>`;
       }).join('')}</tbody></table></div>`;
-  $('#body').insertAdjacentHTML('beforeend', '<p class="note">Documents link: paste the Cognito form link clients use to send their documents. Your own row is the company link, used by every agent who has no link of their own.</p>');
+  $('#body').insertAdjacentHTML('beforeend', '<p class="note">Documents link: paste the Cognito form link clients use to send their documents. Booking link: where clients pick an appointment time. Your own row is the company link for both, used by every agent who has no link of their own.</p>');
   $('#af').onsubmit = async e => {
     e.preventDefault();
     const f = new FormData(e.target);
@@ -687,6 +696,15 @@ function renderAgents() {
     if (error) return toast(error.message);
     toast(data); loadAll();
   };
+  $('#body').querySelectorAll('[data-book]').forEach(inp => inp.onchange = async () => {
+    const val = inp.value.trim() || null;
+    if (val && !/^https:\/\//i.test(val)) return toast('The link must start with https://');
+    const { error } = await sb.from('agents').update({ booking_url: val }).eq('id', inp.dataset.book);
+    if (error) return toast(/booking_url/.test(error.message) ? 'Run the database step first, then set booking links.' : error.message);
+    const a = S.agents.find(x => x.id === inp.dataset.book); a.booking_url = val;
+    if (a.id === S.me.id) { S.me.booking_url = val; if (a.role === 'admin') S.booking = val || ''; }
+    toast('Booking link saved');
+  });
   $('#body').querySelectorAll('[data-intake]').forEach(inp => inp.onchange = async () => {
     const val = inp.value.trim() || null;
     if (val && !/^https:\/\//i.test(val)) return toast('The link must start with https://');
@@ -731,7 +749,7 @@ async function openClient(id) {
       <button class="btn ghost small" id="x">Close</button></div>
     ${id ? `<div class="row">
       <button class="btn ghost small" id="back" ${i <= 0 ? 'disabled' : ''}>← Back a stage</button>
-      <button class="btn small" id="next" ${i >= STAGES.length - 1 ? 'disabled' : ''}>Move to ${i < STAGES.length - 1 ? stageName(STAGES[i + 1][0]) : '—'} →</button>${phoneBtns(c)}</div>` : ''}
+      <button class="btn small" id="next" ${i >= STAGES.length - 1 ? 'disabled' : ''}>Move to ${i < STAGES.length - 1 ? stageName(STAGES[i + 1][0]) : '—'} →</button>${phoneBtns(c)}${bookingFor(c) && telOf(c) ? '<a class="btn ghost small" id="book" href="#">Send booking link</a>' : ''}</div>` : ''}
     <form id="cf" class="grid2">
       <label>Full name<input name="full_name" required value="${esc(c.full_name)}"></label>
       <label>Phone<input name="phone" type="tel" value="${esc(c.phone)}"></label>
@@ -809,6 +827,12 @@ async function openClient(id) {
     c.docs = docs; ov.querySelector('#dcount').textContent = docsIn(c) + ' of ' + DOCS.length;
     renderBody();
   });
+  const book = ov.querySelector('#book');
+  if (book) book.onclick = () => {
+    book.href = smsHref(c, bookMsg(c, bookingFor(c)));
+    try { sb.from('activities').insert({ client_id: id, agent_id: S.me.id, kind: 'text', body: 'Sent booking link' }).then(() => {}, () => {}); } catch (e) {}
+  };
+
   const dsend = ov.querySelector('#dsend');
   if (dsend) dsend.onclick = () => {
     const url = intakeFor(c);
