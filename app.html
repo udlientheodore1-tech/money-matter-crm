@@ -124,6 +124,8 @@ h1 em{font-style:normal;color:var(--accent)}
 <script>
 // ======= PASTE YOUR TWO SUPABASE VALUES HERE =======
 const SUPABASE_URL = 'https://vjiftchpyubsamebbscn.supabase.co';
+// Public half of the notification key pair. Safe to sit in this file.
+const VAPID_PUBLIC = 'BDsi-zT_MSIXhpI7mVdYNw4oNRxNQ0v_z5k9hZs_Tv62qm9QwoLVe1T_ZEMetKSHjuHBrf6QXPcpnB9MbVringw';
 const SUPABASE_KEY = 'sb_publishable_slddgiDveLy6RZh6xQrEIA_S2nL2UyB';
 // ===================================================
 
@@ -445,6 +447,54 @@ function renderBday(v) {
   $('#bday').querySelectorAll('[data-id]').forEach(b => b.onclick = () => openClient(b.dataset.id));
 }
 
+// ---------- Notifications ----------
+const onPhone = () => /iphone|ipad|ipod|android/i.test(navigator.userAgent);
+const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent);
+const installed = () => window.navigator.standalone === true ||
+  window.matchMedia('(display-mode: standalone)').matches;
+const keyBytes = k => {
+  const pad = '='.repeat((4 - k.length % 4) % 4);
+  const raw = atob((k + pad).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from(Array.from(raw, c => c.charCodeAt(0)));
+};
+async function pushState() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) return 'unsupported';
+  if (isIOS() && !installed()) return 'needs_install';
+  if (Notification.permission === 'denied') return 'blocked';
+  const reg = await navigator.serviceWorker.getRegistration();
+  if (!reg) return 'off';
+  return (await reg.pushManager.getSubscription()) ? 'on' : 'off';
+}
+async function pushOn() {
+  if (Notification.permission !== 'granted') {
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') return 'Your phone blocked notifications. Turn them on in Settings for this site, then try again.';
+  }
+  const reg = await navigator.serviceWorker.ready;
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) {
+    try {
+      sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(VAPID_PUBLIC) });
+    } catch (e) { return 'Your phone would not register: ' + e.message; }
+  }
+  const j = sub.toJSON();
+  const { error } = await sb.rpc('save_push_sub', {
+    p_endpoint: j.endpoint, p_p256dh: j.keys.p256dh, p_auth: j.keys.auth,
+    p_label: (navigator.userAgent.match(/iPhone|iPad|Android|Mac|Windows/i) || ['Phone'])[0]
+  });
+  if (error) return /function|schema cache/i.test(error.message)
+    ? 'Not set up yet. Ask Theo to run the notifications database step.' : error.message;
+  return '';
+}
+async function pushOff() {
+  const reg = await navigator.serviceWorker.getRegistration();
+  const sub = reg && await reg.pushManager.getSubscription();
+  if (!sub) return;
+  const ep = sub.endpoint;
+  await sub.unsubscribe();
+  await sb.from('push_subs').delete().eq('endpoint', ep);
+}
+
 // ---------- My VIP link ----------
 function openVipLink() {
   if (!S.me.vip_code) return toast('VIP links are not set up yet. Ask Theo to run the database step.');
@@ -470,6 +520,11 @@ function openVipLink() {
       <label>My booking link (where clients pick an appointment time)<input name="booking" type="url" placeholder="${esc(S.booking) || 'https://...'}" value="${esc(S.me.booking_url)}"></label>
       <div class="row"><button class="btn small">Save my links</button><span class="note" id="mlnote"></span></div>
     </form>
+    <div id="pushbox" style="border-top:1px solid var(--line);padding-top:14px;display:flex;flex-direction:column;gap:10px">
+      <h3 style="font-size:16px">Notifications</h3>
+      <p class="note" style="margin:0" id="pushnote">Checking…</p>
+      <div class="row" id="pushrow"></div>
+    </div>
   </aside>`;
   document.body.appendChild(ov);
   const close = () => ov.remove();
@@ -490,6 +545,53 @@ function openVipLink() {
     note.textContent = ''; toast('Your links are saved'); close();
   };
   if (ov.querySelector('#cpt')) ov.querySelector('#cpt').onclick = () => copyText(vipLink('team'), 'Company link copied');
+  drawPush(ov);
+}
+
+async function drawPush(ov) {
+  const note = ov.querySelector('#pushnote'), row = ov.querySelector('#pushrow');
+  if (!note) return;
+  const st = await pushState();
+  row.innerHTML = '';
+  if (st === 'unsupported') {
+    note.textContent = 'This browser cannot send notifications. Open the CRM in Safari or Chrome on your phone.';
+    return;
+  }
+  if (st === 'needs_install') {
+    note.innerHTML = 'On iPhone you have to add Money Matter to your home screen first: tap <b>Share</b>, then <b>Add to Home Screen</b>. Open it from there and this button will work.';
+    return;
+  }
+  if (st === 'blocked') {
+    note.textContent = 'Your phone is blocking notifications for this site. Turn them back on in your phone settings, then reopen this.';
+    return;
+  }
+  if (st === 'on') {
+    note.textContent = 'On. You get a buzz when a new lead signs up through your link.';
+    row.innerHTML = '<button type="button" class="btn ghost small" id="ptest">Send me a test</button>' +
+                    '<button type="button" class="btn ghost small" id="poff">Turn off</button>';
+    row.querySelector('#ptest').onclick = async e => {
+      e.target.disabled = true; e.target.textContent = 'Sending…';
+      const { error } = await sb.functions.invoke('notify', { body: { test: true } });
+      e.target.disabled = false; e.target.textContent = 'Send me a test';
+      toast(error ? 'Could not send: ' + error.message : 'Sent. Check your phone.');
+    };
+    row.querySelector('#poff').onclick = async e => {
+      e.target.disabled = true;
+      await pushOff();
+      drawPush(ov);
+      toast('Notifications off');
+    };
+    return;
+  }
+  note.textContent = 'Off. Turn these on and your phone buzzes the moment a lead signs up through your link.';
+  row.innerHTML = '<button type="button" class="btn small" id="pon">Turn on notifications</button>';
+  row.querySelector('#pon').onclick = async e => {
+    e.target.disabled = true; e.target.textContent = 'Turning on…';
+    const err = await pushOn();
+    if (err) { e.target.disabled = false; e.target.textContent = 'Turn on notifications'; note.textContent = err; return; }
+    drawPush(ov);
+    toast('Notifications are on');
+  };
 }
 
 // ---------- Follow up today ----------
