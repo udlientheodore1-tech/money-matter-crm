@@ -719,11 +719,65 @@ function openTeamText() {
   draw();
 }
 
+// ---------- Text recruits ----------
+function openRecruitBlast() {
+  const me = S.me.full_name;
+  const TPL = [
+    ['call', 'Invite to the Opportunity Call', `Hi {first}, this is ${me} with Money Matter Tax Services. Our Opportunity Call is this Thursday at 8PM Eastern on Zoom — it's where we show you how the agent program works. Want me to send you the link? Reply STOP to opt out.`],
+    ['training', 'Invite to training', `Hi {first}, this is ${me} with Money Matter Tax Services. Our in-person training day is coming up and I saved you a spot. No tax experience needed — we train you from scratch. Can you make it? Reply STOP to opt out.`],
+    ['checkin', 'Check in', `Hi {first}, this is ${me} with Money Matter Tax Services. You asked about becoming a tax agent — are you still interested? Happy to answer any questions. Reply STOP to opt out.`],
+    ['blank', 'Write my own', `Hi {first}, this is ${me} with Money Matter Tax Services. `]
+  ];
+  const ov = document.createElement('div');
+  ov.className = 'overlay';
+  ov.innerHTML = `<aside class="drawer" role="dialog" aria-label="Text recruits">
+    <div class="row" style="justify-content:space-between"><h2>Text recruits</h2><button class="btn ghost small" id="x">Close</button></div>
+    <p class="note" style="margin:0">Do this on your phone. Pick a message, then tap Text next to each person. It opens your texting app with the message already typed. <b>{first}</b> turns into their first name.</p>
+    <label>Message<select id="rtpl">${TPL.map(t => `<option value="${t[0]}">${t[1]}</option>`).join('')}</select></label>
+    <label>Text<textarea id="rmsg" rows="5">${esc(TPL[0][2])}</textarea></label>
+    <label>Send to<select id="rgrp"><option value="open">Everyone still working (not signed up)</option>${RSTATUS.map(x => `<option value="${esc(x)}">${esc(x)}</option>`).join('')}<option value="all">Everyone</option></select></label>
+    <div class="row" style="justify-content:space-between"><b id="rcount"></b><button class="btn ghost small" id="rreset">Start over</button></div>
+    <div id="rlist" class="acts"></div>
+    <div class="warnbox">Only text people who signed up through the form and agreed to be contacted. Never promise a specific income.</div>
+  </aside>`;
+  document.body.appendChild(ov);
+  const close = () => ov.remove();
+  ov.onclick = e => { if (e.target === ov) close(); };
+  ov.querySelector('#x').onclick = close;
+  const tpl = ov.querySelector('#rtpl'), msg = ov.querySelector('#rmsg'), grp = ov.querySelector('#rgrp');
+  const sent = new Set();
+  const draw = () => {
+    const picked = S.recruits.filter(r => grp.value === 'all' ? true
+      : grp.value === 'open' ? (r.status !== 'Signed up' && r.status !== 'Not now') : r.status === grp.value);
+    const withPhone = picked.filter(r => telOf(r)), noPhone = picked.filter(r => !telOf(r));
+    ov.querySelector('#rcount').textContent = `${sent.size} of ${withPhone.length} sent`;
+    ov.querySelector('#rlist').innerHTML = withPhone.map(r => `<div class="duerow"><b>${esc(r.full_name)}</b>
+        <small>${esc(r.phone)} · ${esc(r.status)}${r.language ? ' · ' + esc(r.language) : ''}</small>
+        <a class="btn small ${sent.has(r.id) ? 'ghost' : ''}" data-id="${r.id}" href="sms:${esc(telOf(r))}">${sent.has(r.id) ? 'Sent ✓ (text again)' : 'Text'}</a></div>`).join('')
+      + (noPhone.length ? `<p class="note">No phone number for: ${noPhone.map(r => esc(r.full_name)).join(', ')}.</p>` : '')
+      + (!withPhone.length && !noPhone.length ? '<p class="note">No recruits match.</p>' : '');
+    sync();
+    ov.querySelectorAll('#rlist a').forEach(el => el.onclick = () => {
+      sent.add(el.dataset.id); setTimeout(draw, 400);
+    });
+  };
+  const sync = () => ov.querySelectorAll('#rlist a').forEach(el => {
+    const r = S.recruits.find(x => x.id === el.dataset.id);
+    if (r) el.href = smsHref(r, msg.value.replace(/\{first\}/gi, firstName(r)));
+  });
+  tpl.onchange = () => { msg.value = (TPL.find(t => t[0] === tpl.value) || TPL[0])[2]; sync(); };
+  msg.oninput = sync;
+  grp.onchange = draw;
+  ov.querySelector('#rreset').onclick = () => { sent.clear(); draw(); };
+  draw();
+}
+
 // ---------- Recruits ----------
 function renderRecruits() {
   const list = S.recruits;
   const open = list.filter(r => r.status !== 'Signed up' && r.status !== 'Not now').length;
-  $('#body').innerHTML = `<section class="kpis" style="margin:0 0 16px">
+  $('#body').innerHTML = `<div class="row" style="margin-bottom:12px"><button class="btn small" id="rblast">Text recruits</button></div>
+    <section class="kpis" style="margin:0 0 16px">
       <div class="panel kpi"><span>Recruits</span><b>${list.length}</b></div>
       <div class="panel kpi"><span>Still working</span><b>${open}</b></div>
       <div class="panel kpi"><span>Signed up</span><b>${list.filter(r => r.status === 'Signed up').length}</b></div>
@@ -756,6 +810,7 @@ function renderRecruits() {
       </section>
       <p class="note">Last 7 days, from your front door page. ${S.traffic.views30 || 0} visits in the last 30 days.</p>
     </div>` : ''}`;
+  $('#rblast').onclick = openRecruitBlast;
   $('#body').querySelectorAll('[data-rf]').forEach(inp => inp.onchange = async () => {
     const { error } = await sb.from('recruits').update({ next_follow_up: inp.value || null }).eq('id', inp.dataset.rf);
     if (error) return toast(/next_follow_up/.test(error.message) ? 'Run the database step first, then set follow-up dates.' : error.message);
