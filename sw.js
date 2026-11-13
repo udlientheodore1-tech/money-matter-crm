@@ -24,3 +24,30 @@ self.addEventListener('fetch', e => {
     )
   );
 });
+
+// ---------- Notifications ----------
+self.addEventListener('push', e => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch (err) { d = { body: e.data && e.data.text() }; }
+  const title = d.title || 'Money Matter';
+  e.waitUntil(self.registration.showNotification(title, {
+    body: d.body || '',
+    icon: 'icon-192.png',
+    badge: 'icon-192.png',
+    tag: d.tag || 'mm',
+    renotify: true,
+    data: { url: d.url || 'app.html' }
+  }));
+});
+
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  const target = new URL((e.notification.data && e.notification.data.url) || 'app.html', self.location.origin).href;
+  e.waitUntil((async () => {
+    const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const w of wins) {
+      if (w.url.indexOf('app.html') !== -1 && 'focus' in w) return w.focus();
+    }
+    return self.clients.openWindow(target);
+  })());
+});
