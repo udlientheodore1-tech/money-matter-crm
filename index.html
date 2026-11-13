@@ -90,7 +90,7 @@ textarea{min-height:70px}
 .err{color:var(--warn);font-size:13px;min-height:1em;margin:0}
 .linkbtn{background:none;border:0;padding:8px 0;min-height:44px;color:var(--accent);font-weight:600;font-size:13px;cursor:pointer;text-decoration:underline;text-align:left}
 .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--accent);color:var(--on-accent);font-weight:600;padding:12px 18px;border-radius:10px;font-size:14px;z-index:20}
-.tab-board>.kpis,.tab-board>.row{display:none}
+.tab-board>.kpis,.tab-board>.row,.tab-recruits>.kpis,.tab-recruits>.row{display:none}
 .goal{display:flex;flex-direction:column;gap:6px;font-size:14px}
 .track{height:12px;border-radius:999px;background:var(--ground);border:1px solid var(--line);overflow:hidden}
 .track i{display:block;height:100%;background:var(--accent)}
@@ -126,7 +126,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 sb.auth.onAuthStateChange(event => {
   if (event === 'PASSWORD_RECOVERY') { recovering = true; renderNewPassword(); }
 });
-const S = { me: null, agents: [], clients: [], tab: 'pipeline', filter: 'all', q: '', sent: new Set(), board: null, intake: '', booking: '' };
+const S = { me: null, agents: [], clients: [], tab: 'pipeline', filter: 'all', q: '', sent: new Set(), board: null, intake: '', booking: '', recruits: [], traffic: null };
 const $ = s => document.querySelector(s);
 const app = $('#app');
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -163,6 +163,7 @@ const bdayMsg = c => (c.language === 'Kreyòl' ? `Bòn fèt, ${firstName(c)}!` :
 const DOCS = [['id', 'Photo ID'], ['ssn_card', 'Social Security cards'], ['income', 'Income forms (W-2 / 1099)'], ['dependents', "Dependents' info (if any)"], ['bank', 'Bank account for deposit'], ['prior', "Last year's return (new clients)"]];
 const docsOf = c => (c && c.docs && typeof c.docs === 'object') ? c.docs : {};
 const docsIn = c => DOCS.filter(d => docsOf(c)[d[0]]).length;
+const RSTATUS = ['New', 'Contacted', 'Attended call', 'Signed up', 'Not now'];
 const GOALS = { clients: 1000, bank: 600, gross: 500000 };
 const pct = (n, goal) => Math.max(0, Math.min(100, Math.round(n / goal * 100)));
 const bar = (label, n, goal, fmt) => `<div class="goal"><div class="row" style="justify-content:space-between"><span>${label}</span><b>${fmt ? fmt(n) : n} of ${fmt ? fmt(goal) : goal.toLocaleString('en-US')}</b></div>
@@ -352,6 +353,8 @@ async function loadAll() {
   try { const b = await sb.rpc('team_scoreboard'); S.board = b.error ? null : (b.data || []); } catch (e) { S.board = null; }
   try { const u = await sb.rpc('company_intake_url'); S.intake = u.error ? '' : (u.data || ''); } catch (e) { S.intake = ''; }
   try { const k = await sb.rpc('company_booking_url'); S.booking = k.error ? '' : (k.data || ''); } catch (e) { S.booking = ''; }
+  try { const r = await sb.from('recruits').select('*').order('created_at', { ascending: false }); S.recruits = r.error ? [] : (r.data || []); } catch (e) { S.recruits = []; }
+  if (me.role === 'admin') { try { const t = await sb.rpc('front_door_stats'); S.traffic = t.error ? null : t.data; } catch (e) { S.traffic = null; } }
   render();
 }
 const visible = () => S.filter === 'all' ? S.clients : S.clients.filter(c => c.agent_id === S.filter);
@@ -360,7 +363,7 @@ const visible = () => S.filter === 'all' ? S.clients : S.clients.filter(c => c.a
 function render() {
   const v = visible();
   const booked = v.filter(isDone).reduce((t, c) => t + Number(c.fee || 0), 0);
-  const tabs = [['pipeline','Pipeline'],['clients','Clients'],['board','Scoreboard']].concat(isAdmin() ? [['agents','Agents']] : []);
+  const tabs = [['pipeline','Pipeline'],['clients','Clients'],['recruits','Recruits'],['board','Scoreboard']].concat(isAdmin() ? [['agents','Agents']] : []);
   app.innerHTML = `<div class="wrap tab-${S.tab}">
     <header class="top">
       <div><h1>Money Matter <em>CRM</em></h1><div class="who">${esc(S.me.full_name)} · ${isAdmin() ? 'Admin' : 'Agent'}</div></div>
@@ -402,7 +405,10 @@ function shown() {
 }
 
 function renderBody() {
-  if (S.tab === 'agents' || S.tab === 'board') { $('#due').innerHTML = ''; $('#bday').innerHTML = ''; return S.tab === 'agents' ? renderAgents() : renderBoard(); }
+  if (S.tab === 'agents' || S.tab === 'board' || S.tab === 'recruits') {
+    $('#due').innerHTML = ''; $('#bday').innerHTML = '';
+    return S.tab === 'agents' ? renderAgents() : S.tab === 'board' ? renderBoard() : renderRecruits();
+  }
   const v = shown();
   renderBday(v);
   renderDue(v);
@@ -434,12 +440,15 @@ function openVipLink() {
     <p style="margin:0">Post this link, text it, or put it in your bio. Everyone who signs up through it lands in your CRM as a New lead under your name, and shows up in Follow up today.</p>
     <label>Your personal link<input readonly value="${esc(mine)}" onclick="this.select()"></label>
     <div class="row"><button class="btn" id="cp">Copy my link</button><a class="btn ghost" href="${esc(mine)}" target="_blank" rel="noopener">Open it</a></div>
+    <label>My front door link (taxes, becoming an agent, and login — one link for your bio)<input readonly value="${esc(APP_URL.replace(/[^/]*$/, '') + 'start.html?a=' + encodeURIComponent(S.me.vip_code || ''))}" onclick="this.select()"></label>
+    <div class="row"><button type="button" class="btn ghost" id="cpf">Copy my front door link</button></div>
     ${isAdmin() ? `<label>Company link (no agent, leads come to you)<input readonly value="${esc(vipLink('team'))}" onclick="this.select()"></label>
     <div class="row"><button class="btn ghost" id="cpt">Copy company link</button></div>
     <p class="note" style="margin:0">Use the company link on ads, flyers and signs. Leads from it land under your name so you can hand them out.</p>` : ''}
     <div class="warnbox">The sign-up page only asks for name, phone, email and language. Never SSNs or documents.</div>
     <form id="mylinks" style="display:flex;flex-direction:column;gap:10px;border-top:1px solid var(--line);padding-top:14px">
-      <h3 style="font-size:16px">My documents and booking links</h3>
+      <h3 style="font-size:16px">My details</h3>
+      <label>My cell phone (so Theo can text the team)<input name="phone" type="tel" inputmode="tel" value="${esc(S.me.phone)}"></label>
       <p class="note" style="margin:0">Leave a box empty to use the company link Theo set.</p>
       <label>My documents link (where clients send their tax documents)<input name="intake" type="url" placeholder="${esc(S.intake) || 'https://...'}" value="${esc(S.me.intake_url)}"></label>
       <label>My booking link (where clients pick an appointment time)<input name="booking" type="url" placeholder="${esc(S.booking) || 'https://...'}" value="${esc(S.me.booking_url)}"></label>
@@ -451,16 +460,17 @@ function openVipLink() {
   ov.onclick = e => { if (e.target === ov) close(); };
   ov.querySelector('#x').onclick = close;
   ov.querySelector('#cp').onclick = () => copyText(mine, 'Your VIP link is copied');
+  ov.querySelector('#cpf').onclick = () => copyText(APP_URL.replace(/[^/]*$/, '') + 'start.html?a=' + encodeURIComponent(S.me.vip_code || ''), 'Front door link copied');
   ov.querySelector('#mylinks').onsubmit = async e => {
     e.preventDefault();
     const f = new FormData(e.target), note = ov.querySelector('#mlnote');
-    const i = (f.get('intake') || '').trim(), k = (f.get('booking') || '').trim();
+    const i = (f.get('intake') || '').trim(), k = (f.get('booking') || '').trim(), ph = (f.get('phone') || '').trim();
     if ((i && !/^https:\/\//i.test(i)) || (k && !/^https:\/\//i.test(k))) { note.textContent = 'Links must start with https://'; return; }
     note.textContent = 'Saving…';
-    const { error } = await sb.rpc('set_my_links', { p_intake: i, p_booking: k });
+    const { error } = await sb.rpc('set_my_links', { p_intake: i, p_booking: k, p_phone: ph });
     if (error) { note.textContent = /function|schema cache/i.test(error.message) ? 'Not set up yet. Ask Theo to run the database step.' : error.message; return; }
-    S.me.intake_url = i || null; S.me.booking_url = k || null;
-    const a = S.agents.find(x => x.id === S.me.id); if (a) { a.intake_url = S.me.intake_url; a.booking_url = S.me.booking_url; }
+    S.me.intake_url = i || null; S.me.booking_url = k || null; S.me.phone = ph || null;
+    const a = S.agents.find(x => x.id === S.me.id); if (a) { a.intake_url = S.me.intake_url; a.booking_url = S.me.booking_url; a.phone = S.me.phone; }
     note.textContent = ''; toast('Your links are saved'); close();
   };
   if (ov.querySelector('#cpt')) ov.querySelector('#cpt').onclick = () => copyText(vipLink('team'), 'Company link copied');
@@ -536,15 +546,20 @@ function openBlast() {
     ov.querySelector('#blist').innerHTML = list.map(c => `<div class="duerow"><b>${esc(c.full_name)}</b><small>${esc(c.phone)}${c.language ? ' · ' + esc(c.language) : ''}</small>
       <a class="btn small ${S.sent.has(c.id) ? 'ghost' : ''}" data-id="${c.id}" href="sms:${esc(telOf(c))}">${S.sent.has(c.id) ? 'Sent ✓ (text again)' : 'Text'}</a></div>`).join('')
       || '<p class="note">No clients with a phone number match.</p>';
+    sync();
     ov.querySelectorAll('#blist a').forEach(a => a.onclick = () => {
       const c = base.find(x => x.id === a.dataset.id);
-      a.href = smsHref(c, fill(c));
       const first = !S.sent.has(c.id);
       S.sent.add(c.id); setTimeout(draw, 400);
       if (first) { try { sb.from('activities').insert({ client_id: c.id, agent_id: S.me.id, kind: 'text', body: 'Text blast: ' + fill(c) }).then(() => {}, () => {}); } catch (e) {} }
     });
   };
+  const sync = () => ov.querySelectorAll('#blist a').forEach(a => {
+    const c = base.find(x => x.id === a.dataset.id);
+    if (c) a.href = smsHref(c, fill(c));
+  });
   lang.onchange = draw;
+  msg.oninput = sync;
   ov.querySelector('#breset').onclick = () => { S.sent.clear(); draw(); };
   draw();
 }
@@ -652,6 +667,114 @@ function openImport() {
   };
 }
 
+// ---------- Text the team (admin) ----------
+function openTeamText() {
+  const stats = a => {
+    const mine = S.clients.filter(c => c.agent_id === a.id);
+    return { total: mine.length, filed: mine.filter(isDone).length };
+  };
+  const GROUPS = [['all', 'Everyone active'], ['noclients', 'No clients yet'], ['nofiled', 'Nothing filed yet']];
+  const ov = document.createElement('div');
+  ov.className = 'overlay';
+  ov.innerHTML = `<aside class="drawer" role="dialog" aria-label="Text the team">
+    <div class="row" style="justify-content:space-between"><h2>Text the team</h2><button class="btn ghost small" id="x">Close</button></div>
+    <p class="note" style="margin:0">Do this on your phone. Write the message once, then tap Text next to each agent. It opens your texting app with the message already typed. <b>{first}</b> turns into their first name.</p>
+    <label>Message<textarea id="tmsg" rows="4">Hi {first}, it's Theo. </textarea></label>
+    <label>Send to<select id="tgrp">${GROUPS.map(g => `<option value="${g[0]}">${g[1]}</option>`).join('')}</select></label>
+    <div class="row" style="justify-content:space-between"><b id="tcount"></b><button class="btn ghost small" id="treset">Start over</button></div>
+    <div id="tlist" class="acts"></div>
+  </aside>`;
+  document.body.appendChild(ov);
+  const close = () => ov.remove();
+  ov.onclick = e => { if (e.target === ov) close(); };
+  ov.querySelector('#x').onclick = close;
+  const msg = ov.querySelector('#tmsg'), grp = ov.querySelector('#tgrp');
+  const sent = new Set();
+  const draw = () => {
+    const list = S.agents.filter(a => a.active && a.id !== S.me.id).filter(a => {
+      const st = stats(a);
+      return grp.value === 'noclients' ? st.total === 0 : grp.value === 'nofiled' ? st.filed === 0 : true;
+    });
+    const withPhone = list.filter(a => telOf(a)), noPhone = list.filter(a => !telOf(a));
+    ov.querySelector('#tcount').textContent = `${sent.size} of ${withPhone.length} sent`;
+    ov.querySelector('#tlist').innerHTML = withPhone.map(a => {
+      const st = stats(a);
+      return `<div class="duerow"><b>${esc(a.full_name)}</b><small>${esc(a.phone)} · ${st.total} clients · ${st.filed} filed</small>
+        <a class="btn small ${sent.has(a.id) ? 'ghost' : ''}" data-id="${a.id}" href="sms:${esc(telOf(a))}">${sent.has(a.id) ? 'Sent ✓ (text again)' : 'Text'}</a></div>`;
+    }).join('')
+      + (noPhone.length ? `<p class="note">No cell phone on file for: ${noPhone.map(a => esc(a.full_name)).join(', ')}. Add their number in the Cell phone column.</p>` : '')
+      + (!withPhone.length && !noPhone.length ? '<p class="note">No agents match.</p>' : '');
+    sync();
+    ov.querySelectorAll('#tlist a').forEach(el => el.onclick = () => {
+      sent.add(el.dataset.id); setTimeout(draw, 400);
+    });
+  };
+  const sync = () => ov.querySelectorAll('#tlist a').forEach(el => {
+    const a = S.agents.find(x => x.id === el.dataset.id);
+    if (a) el.href = smsHref(a, msg.value.replace(/\{first\}/gi, firstName(a)));
+  });
+  grp.onchange = draw;
+  msg.oninput = sync;
+  ov.querySelector('#treset').onclick = () => { sent.clear(); draw(); };
+  draw();
+}
+
+// ---------- Recruits ----------
+function renderRecruits() {
+  const list = S.recruits;
+  const open = list.filter(r => r.status !== 'Signed up' && r.status !== 'Not now').length;
+  $('#body').innerHTML = `<section class="kpis" style="margin:0 0 16px">
+      <div class="panel kpi"><span>Recruits</span><b>${list.length}</b></div>
+      <div class="panel kpi"><span>Still working</span><b>${open}</b></div>
+      <div class="panel kpi"><span>Signed up</span><b>${list.filter(r => r.status === 'Signed up').length}</b></div>
+    </section>
+    <div class="panel scroll" style="padding:0"><table style="min-width:720px"><thead><tr>
+      <th>Name</th><th>Phone</th><th>Experience</th><th>Language</th>${isAdmin() ? '<th>Referred by</th>' : ''}<th>Came in</th><th>Status</th><th>Follow up</th><th></th>
+    </tr></thead><tbody>
+    ${list.map(r => `<tr>
+      <td><b>${esc(r.full_name)}</b>${r.email ? `<br><small>${esc(r.email)}</small>` : ''}</td>
+      <td>${r.phone ? `<a class="tel" href="tel:${esc(telOf(r))}">${esc(r.phone)}</a>` : ''}</td>
+      <td>${r.experience === 'yes' ? 'Experienced' : r.experience === 'some' ? 'A little' : 'Brand new'}</td>
+      <td>${esc(r.language)}</td>
+      ${isAdmin() ? `<td>${r.referred_by ? esc(agentName(r.referred_by)) : '— (company link)'}</td>` : ''}
+      <td>${esc(String(r.created_at || '').slice(0, 10))}</td>
+      <td><select data-rs="${r.id}" aria-label="Status for ${esc(r.full_name)}">${RSTATUS.map(x => `<option ${r.status === x ? 'selected' : ''}>${x}</option>`).join('')}</select></td>
+      <td><input type="date" data-rf="${r.id}" aria-label="Next follow-up for ${esc(r.full_name)}" value="${esc(r.next_follow_up)}" style="min-width:150px"></td>
+      <td>${telOf(r) ? `<span class="row"><a class="btn small" href="tel:${esc(telOf(r))}">Call</a><a class="btn ghost small" data-rt="${r.id}" href="sms:${esc(telOf(r))}">${r.status === 'New' ? 'Welcome text' : 'Text'}</a></span>` : ''}</td>
+    </tr>`).join('') || '<tr><td colspan="9">No recruits yet. Share your front door link and they will land here.</td></tr>'}
+    </tbody></table></div>
+    <p class="note">Recruits come from the “Become a tax agent” form on your front door page. Never promise a specific income.</p>
+    ${isAdmin() && S.traffic ? `<div class="panel" style="margin-top:16px;display:flex;flex-direction:column;gap:12px">
+      <h2 style="font-size:20px">Front door traffic</h2>
+      <section class="kpis" style="margin:0">
+        <div class="panel kpi"><span>Visits (7 days)</span><b>${S.traffic.views7 || 0}</b></div>
+        <div class="panel kpi"><span>Tapped “taxes”</span><b>${S.traffic.taxes7 || 0}</b></div>
+        <div class="panel kpi"><span>Tapped “book”</span><b>${S.traffic.book7 || 0}</b></div>
+        <div class="panel kpi"><span>Tapped “agent”</span><b>${S.traffic.agent7 || 0}</b></div>
+        <div class="panel kpi"><span>Signed up</span><b>${(S.traffic.vip7 || 0) + (S.traffic.recruit7 || 0)}</b></div>
+        <div class="panel kpi"><span>Visit to sign-up</span><b>${S.traffic.views7 ? Math.round(((S.traffic.vip7 || 0) + (S.traffic.recruit7 || 0)) / S.traffic.views7 * 100) + '%' : '—'}</b></div>
+      </section>
+      <p class="note">Last 7 days, from your front door page. ${S.traffic.views30 || 0} visits in the last 30 days.</p>
+    </div>` : ''}`;
+  $('#body').querySelectorAll('[data-rf]').forEach(inp => inp.onchange = async () => {
+    const { error } = await sb.from('recruits').update({ next_follow_up: inp.value || null }).eq('id', inp.dataset.rf);
+    if (error) return toast(/next_follow_up/.test(error.message) ? 'Run the database step first, then set follow-up dates.' : error.message);
+    S.recruits.find(x => x.id === inp.dataset.rf).next_follow_up = inp.value || null;
+    toast('Saved');
+  });
+  $('#body').querySelectorAll('[data-rs]').forEach(sel => sel.onchange = async () => {
+    const { error } = await sb.from('recruits').update({ status: sel.value }).eq('id', sel.dataset.rs);
+    if (error) return toast(error.message);
+    const r = S.recruits.find(x => x.id === sel.dataset.rs); r.status = sel.value;
+    toast('Saved'); renderBody();
+  });
+  $('#body').querySelectorAll('[data-rt]').forEach(a => a.onclick = () => {
+    const r = S.recruits.find(x => x.id === a.dataset.rt);
+    a.href = smsHref(r, `Hi ${firstName(r)}, this is ${S.me.full_name} with Money Matter Tax Services. Thanks for your interest in becoming a tax agent. Our Opportunity Call is Thursday at 8PM Eastern on Zoom — want me to send you the link?`);
+  });
+  $('#body').querySelectorAll('a.tel').forEach(a => a.onclick = e => e.stopPropagation());
+}
+
 // ---------- Scoreboard ----------
 function renderBoard() {
   const mine = S.clients.filter(c => c.agent_id === S.me.id);
@@ -693,7 +816,8 @@ function renderAgents() {
         <label>Email<input name="email" type="email" required></label>
         <div style="display:flex;align-items:flex-end"><button class="btn">Add agent</button></div></form>
     </div>
-    <div class="panel scroll" style="padding:0"><table><thead><tr><th>Agent</th><th>Clients</th><th>Filed</th><th>Funded</th><th>Fees booked</th><th>Split %</th><th>Est. payout</th><th>Documents link</th><th>Booking link</th>
+    <div class="row" style="margin-bottom:12px"><button class="btn small" id="teamtext">Text the team</button></div>
+    <div class="panel scroll" style="padding:0"><table><thead><tr><th>Agent</th><th>Cell phone</th><th>Clients</th><th>Filed</th><th>Funded</th><th>Fees booked</th><th>Split %</th><th>Est. payout</th><th>Documents link</th><th>Booking link</th>
       <th>Cognito access</th><th>File w/o review</th><th>Active</th></tr></thead><tbody>
       ${S.agents.map(a => {
         const mine = S.clients.filter(c => c.agent_id === a.id);
@@ -701,6 +825,7 @@ function renderAgents() {
         return `<tr><td><b>${esc(a.full_name)}</b><br><span class="note">${esc(a.email)}${a.role === 'admin' ? ' · Admin' : ''}</span></td>
           <td>${mine.length}</td><td>${mine.filter(isDone).length}</td><td>${mine.filter(c => c.stage === 'funded').length}</td>
           <td>${money(mine.filter(isDone).reduce((t, c) => t + Number(c.fee || 0), 0))}</td>
+          <td><input type="tel" inputmode="tel" aria-label="Cell phone for ${esc(a.full_name)}" data-ph="${a.id}" value="${esc(a.phone)}" placeholder="For team texts" style="min-width:140px"></td>
           <td><input type="number" min="0" max="100" step="1" inputmode="numeric" aria-label="Split percent for ${esc(a.full_name)}" data-split="${a.id}" value="${a.split_pct == null ? '' : esc(a.split_pct)}" style="width:84px"></td>
           <td>${a.split_pct == null ? '—' : money(Math.round(mine.filter(isDone).reduce((t, c) => t + Number(c.fee || 0), 0) * Number(a.split_pct) / 100))}</td>
           <td><input type="url" aria-label="Documents link for ${esc(a.full_name)}" data-intake="${a.id}" value="${esc(a.intake_url)}" placeholder="${a.role === 'admin' ? 'Company link (used by everyone)' : 'Leave blank to use the company link'}" style="min-width:220px"></td>
@@ -708,6 +833,7 @@ function renderAgents() {
           ${['cognito_access','can_file_without_review','active'].map(f => `<td><input type="checkbox" aria-label="${f} for ${esc(a.full_name)}" data-a="${a.id}" data-f="${f}" ${a[f] ? 'checked' : ''} ${self ? 'disabled' : ''}></td>`).join('')}</tr>`;
       }).join('')}</tbody></table></div>`;
   $('#body').insertAdjacentHTML('beforeend', '<p class="note">Documents link: paste the Cognito form link clients use to send their documents. Booking link: where clients pick an appointment time. Your own row is the company link for both, used by every agent who has no link of their own.</p>');
+  $('#teamtext').onclick = openTeamText;
   $('#af').onsubmit = async e => {
     e.preventDefault();
     const f = new FormData(e.target);
@@ -715,6 +841,14 @@ function renderAgents() {
     if (error) return toast(error.message);
     toast(data); loadAll();
   };
+  $('#body').querySelectorAll('[data-ph]').forEach(inp => inp.onchange = async () => {
+    const val = inp.value.trim() || null;
+    const { error } = await sb.from('agents').update({ phone: val }).eq('id', inp.dataset.ph);
+    if (error) return toast(/phone/.test(error.message) ? 'Run the database step first, then add phone numbers.' : error.message);
+    const a = S.agents.find(x => x.id === inp.dataset.ph); a.phone = val;
+    if (a.id === S.me.id) S.me.phone = val;
+    toast('Phone saved');
+  });
   $('#body').querySelectorAll('[data-book]').forEach(inp => inp.onchange = async () => {
     const val = inp.value.trim() || null;
     if (val && !/^https:\/\//i.test(val)) return toast('The link must start with https://');
