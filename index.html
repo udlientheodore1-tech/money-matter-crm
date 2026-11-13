@@ -3,6 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="icon-192.png" type="image/png">
+<meta name="theme-color" content="#0E0E0E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Money Matter">
+<meta name="mobile-web-app-capable" content="yes">
 <title>Money Matter Tax Services</title>
 <meta name="description" content="Money Matter Tax Services — virtual and in-person tax preparation. Nou Pale Kreyol, Hablamos Espanol, We Speak English.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -231,6 +239,11 @@ $('#jf').onsubmit = async e => {
   $('#jdone').classList.remove('hid');
   $('#jdone').scrollIntoView({ behavior: 'smooth', block: 'center' });
 };
+
+// ---------- Install as an app ----------
+if ('serviceWorker' in navigator && location.protocol === 'https:') {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
 </script>
 </body>
 </html>
